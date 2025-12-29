@@ -313,7 +313,7 @@ def get_options_data():
         # Get options data
         query = f'''
             SELECT symbol, best_bid, best_ask, mark_price,
-                   delta, gamma, theta, vega, mark_vol, timestamp, contract_type
+                   delta, gamma, theta, vega, timestamp, contract_type
             FROM {table_name}
             WHERE contract_type IN ('call_options', 'put_options', 'call_option', 'put_option', 'option')
         '''
@@ -358,7 +358,7 @@ def get_options_data():
                 'gamma': float(row[5]) if row[5] else None,
                 'theta': float(row[6]) if row[6] else None,
                 'vega': float(row[7]) if row[7] else None,
-                'mark_vol': float(row[8]) if row[8] else None,
+           
                 'timestamp': str(row[9]) if row[9] else None
             }
             
