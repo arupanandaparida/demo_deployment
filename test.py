@@ -420,32 +420,36 @@ def on_message_linear(ws, message):
         
         # Handle ticker data
         if data.get('topic', '').startswith('tickers'):
-            ticker_data = data.get('data', {})
-            if ticker_data:
-                process_ticker_data(ticker_data, 'linear')
+            ticker = data.get('data')
+            if isinstance(ticker, dict):
+                process_ticker_data(ticker, 'linear')
+
                 
     except Exception as e:
         pass  # Ignore parsing errors
 
 
 def on_message_option(ws, message):
-    """Handle option messages"""
     try:
         data = json.loads(message)
-        
-        # Check for successful subscription
-        if data.get('success') == True:
-            print(f"✅ Option subscription confirmed")
+
+        if data.get('success') is True:
+            print("✅ Option subscription confirmed")
             return
-        
-        # Handle ticker data
+
         if data.get('topic', '').startswith('tickers'):
-            ticker_data = data.get('data', {})
-            if ticker_data:
-                process_ticker_data(ticker_data, 'option')
-                
+            ticker_list = data.get('data', [])
+
+            # ✅ OPTIONS SEND LIST, NOT DICT
+            if isinstance(ticker_list, list):
+                for ticker in ticker_list:
+                    process_ticker_data(ticker, 'option')
+
+    except json.JSONDecodeError:
+        return
     except Exception as e:
-        pass  # Ignore parsing errors
+        print(f"❌ Option message error: {e}")
+
 
 
 def on_open_linear(ws):
