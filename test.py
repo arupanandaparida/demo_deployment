@@ -50,47 +50,7 @@ connection_stats = {
 connection_pool = None
 
 
-def get_active_options():
-    options = []
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "application/json"
-    }
 
-    def fetch(base):
-        url = "https://api.bybit.com/v5/market/tickers"
-        params = {"category": "option", "baseCoin": base}
-
-        r = requests.get(url, params=params, headers=headers, timeout=10)
-
-        if r.status_code != 200:
-            print(f"❌ REST failed {base}: {r.status_code}")
-            return []
-
-        try:
-            data = r.json()
-        except:
-            print(f"❌ Non-JSON response for {base}")
-            return []
-
-        if data.get("retCode") != 0:
-            print(f"❌ API error {base}: {data}")
-            return []
-
-        return [
-            f"tickers.{item['symbol']}"
-            for item in data.get("result", {}).get("list", [])
-            if item.get("symbol")
-        ]
-
-    btc = fetch("BTC")
-    eth = fetch("ETH")
-
-    options.extend(btc)
-    options.extend(eth)
-
-    print(f"✅ Options loaded: BTC={len(btc)}, ETH={len(eth)}")
-    return options
 
 
 
@@ -512,40 +472,27 @@ def on_open_linear(ws):
 
 
 def on_open_option(ws):
-    """Subscribe to BTC and ETH option tickers - ALL ACTIVE OPTIONS"""
     global connection_stats
     connection_stats['option_last_connected'] = datetime.now().strftime("%H:%M:%S")
     connection_stats['option_reconnects'] += 1
-    
+
     print(f"✅ Connected to Bybit Options (reconnect #{connection_stats['option_reconnects']})")
-    
-    # Fetch active options
-    option_symbols = get_active_options()
-    
-    if not option_symbols:
-        print("⚠️  No options found, will retry later")
-        return
-    
-    # Bybit allows max 2000 args per subscription for options
-    # Split into chunks if needed
-    chunk_size = 200  # Conservative limit
-    
-    for i in range(0, len(option_symbols), chunk_size):
-        chunk = option_symbols[i:i + chunk_size]
-        
-        payload = {
-            "op": "subscribe",
-            "args": chunk
-        }
-        
-        try:
-            ws.send(json.dumps(payload))
-            print(f"📡 Subscribed to {len(chunk)} options (batch {i//chunk_size + 1})")
-            time.sleep(0.5)  # Small delay between batches
-        except Exception as e:
-            print(f"❌ Option Subscription Error: {e}")
-    
-    print(f"✅ Total {len(option_symbols)} options subscribed\n")
+
+    # ✅ DIRECT wildcard subscription (NO REST)
+    payload = {
+        "op": "subscribe",
+        "args": [
+            "tickers.BTC-*",
+            "tickers.ETH-*"
+        ]
+    }
+
+    try:
+        ws.send(json.dumps(payload))
+        print("📡 Subscribed to ALL BTC & ETH Options (wildcard)\n")
+    except Exception as e:
+        print(f"❌ Option Subscription Error: {e}")
+
 
 
 def on_error(ws, error):
