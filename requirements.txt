@@ -1,7 +1,8 @@
-
 flask
 flask-cors
 gunicorn
 mysql-connector-python
-websocket-client
 requests
+pandas
+numpy
+scipy
