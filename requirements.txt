@@ -1,6 +1,7 @@
 
-Flask==3.0.0
-flask-cors==4.0.0
-mysql-connector-python==8.2.0
-websocket-client==1.7.0
-gunicorn==21.2.0
+flask
+flask-cors
+gunicorn
+mysql-connector-python
+websocket-client
+requests
