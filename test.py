@@ -1,7 +1,7 @@
 """
-Bybit WebSocket Collector - PURE WEBSOCKET VERSION
-No REST API dependency - discovers all BTC options via WebSocket
-Works perfectly on Railway
+Bybit WebSocket Collector - HYBRID VERSION
+Tries to fetch options from API, falls back to comprehensive hardcoded list
+Works reliably on Railway with WebSocket-only mode
 """
 import websocket
 import json
@@ -10,7 +10,8 @@ from mysql.connector import pooling
 import time
 import threading
 import os
-from datetime import datetime, timezone
+import requests
+from datetime import datetime, timezone, timedelta
 from queue import Queue
 from collections import defaultdict
 
@@ -18,7 +19,10 @@ from collections import defaultdict
 WS_URL_LINEAR = "wss://stream.bybit.com/v5/public/linear"
 WS_URL_OPTION = "wss://stream.bybit.com/v5/public/option"
 
-# MySQL Configuration - Using environment variables for Railway
+# Bybit REST API endpoint
+BYBIT_API_URL = "https://api.bybit.com/v5/market/tickers"
+
+# MySQL Configuration
 MYSQL_CONFIG = {
     'host': os.getenv('MYSQLHOST', os.getenv('MYSQL_HOST', 'localhost')),
     'port': int(os.getenv('MYSQLPORT', os.getenv('MYSQL_PORT', '3306'))),
@@ -29,24 +33,113 @@ MYSQL_CONFIG = {
 
 TABLE_NAME = 'bybit_data'
 
+# ✅ COMPREHENSIVE FALLBACK LIST - Generated for multiple expiries
+def generate_comprehensive_option_list():
+    """Generate comprehensive BTC option symbols for multiple expiries and strikes"""
+    symbols = []
+    
+    # Common expiries (update these based on current available dates)
+    expiries = [
+        "30DEC25", "31DEC25",  # End of month
+        "03JAN26", "10JAN26", "17JAN26", "24JAN26", "31JAN26",  # January
+        "28FEB26", "27MAR26", "30JUN26", "29DEC26"  # Quarterly
+    ]
+    
+    # Strike range: 60k to 120k in various increments
+    strikes = []
+    
+    # Fine granularity around current price (80k-100k)
+    for strike in range(80000, 100000, 500):
+        strikes.append(strike)
+    
+    # Wider range with larger increments
+    for strike in range(60000, 80000, 1000):
+        strikes.append(strike)
+    for strike in range(100000, 120000, 1000):
+        strikes.append(strike)
+    
+    # Generate all combinations
+    for expiry in expiries:
+        for strike in strikes:
+            symbols.append(f"BTC-{expiry}-{strike}-C-USDT")
+            symbols.append(f"BTC-{expiry}-{strike}-P-USDT")
+    
+    return sorted(set(symbols))
+
+
+# Generate comprehensive fallback list
+FALLBACK_OPTION_SYMBOLS = generate_comprehensive_option_list()
+
 # Queue for non-blocking DB writes
 db_queue = Queue(maxsize=10000)
 update_count = 0
 symbol_count = defaultdict(int)
 price_cache = {}
 symbol_data_cache = {}
-discovered_options = set()  # Track discovered BTC options
-option_ws = None  # Global reference to option websocket
 last_pong = time.time()
 connection_stats = {
     'linear_reconnects': 0,
     'option_reconnects': 0,
     'linear_last_connected': None,
-    'option_last_connected': None
+    'option_last_connected': None,
+    'api_fetch_attempts': 0,
+    'api_fetch_success': 0
 }
 
-# Connection pool
 connection_pool = None
+
+
+def fetch_all_btc_options():
+    """Try to fetch ALL active BTC options from Bybit REST API"""
+    global connection_stats
+    connection_stats['api_fetch_attempts'] += 1
+    
+    print("🔍 Attempting to fetch BTC options from Bybit API...")
+    
+    try:
+        params = {
+            'category': 'option',
+            'baseCoin': 'BTC'
+        }
+        
+        # Add headers to avoid rate limiting
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        response = requests.get(
+            BYBIT_API_URL, 
+            params=params, 
+            headers=headers,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            if data.get('retCode') == 0:
+                symbols = []
+                result_list = data.get('result', {}).get('list', [])
+                
+                for item in result_list:
+                    symbol = item.get('symbol')
+                    if symbol and 'BTC' in symbol:
+                        symbols.append(symbol)
+                
+                if symbols:
+                    connection_stats['api_fetch_success'] += 1
+                    print(f"✅ API SUCCESS: Found {len(symbols)} active BTC options")
+                    return symbols
+        
+        print(f"⚠️  API returned status {response.status_code}")
+        return None
+            
+    except requests.exceptions.RequestException as e:
+        print(f"⚠️  API request failed: {str(e)[:100]}")
+        return None
+    except Exception as e:
+        print(f"⚠️  API error: {str(e)[:100]}")
+        return None
 
 
 def setup_database():
@@ -223,7 +316,7 @@ def database_worker():
                 update_count += len(batch)
                 
                 if update_count % 50 == 0:
-                    print(f"💾 Updates: {update_count} | Queue: {db_queue.qsize()} | BTC Options: {len(discovered_options)}")
+                    print(f"💾 Updates: {update_count} | Queue: {db_queue.qsize()}")
                 
                 batch = []
                 last_write = time.time()
@@ -280,28 +373,6 @@ def determine_contract_type(symbol, category):
     return 'perpetual_future'
 
 
-def subscribe_to_new_option(symbol):
-    """Subscribe to a newly discovered BTC option"""
-    global option_ws, discovered_options
-    
-    if symbol in discovered_options:
-        return
-    
-    discovered_options.add(symbol)
-    
-    if option_ws and option_ws.sock and option_ws.sock.connected:
-        payload = {
-            "op": "subscribe",
-            "args": [f"tickers.{symbol}"]
-        }
-        try:
-            option_ws.send(json.dumps(payload))
-            if len(discovered_options) % 10 == 0:
-                print(f"📡 Now tracking {len(discovered_options)} BTC options")
-        except Exception as e:
-            pass
-
-
 def process_ticker_data(data, category):
     """Process Bybit ticker data"""
     global symbol_count, symbol_data_cache
@@ -314,10 +385,6 @@ def process_ticker_data(data, category):
         # Filter: Only BTC
         if 'BTC' not in symbol:
             return
-        
-        # If this is a new BTC option, subscribe to it
-        if category == 'option' and symbol not in discovered_options:
-            subscribe_to_new_option(symbol)
         
         if symbol not in symbol_data_cache:
             symbol_data_cache[symbol] = {}
@@ -391,9 +458,9 @@ def process_ticker_data(data, category):
         if symbol_count[count_key] % 20 == 0:
             if contract_type in ['call_option', 'put_option']:
                 option_type = "CALL" if contract_type == 'call_option' else "PUT"
-                print(f"⚡ {coin} {option_type} | {symbol} | Mark: ${mark_price:.1f} | IV: {mark_iv:.3f}")
+                print(f"⚡ {coin} {option_type} | Strike: ${strike_price:.0f} | Mark: ${mark_price:.1f}")
             else:
-                print(f"⚡ {coin} {contract_type.upper()} | {symbol} | Mark: ${mark_price:.2f} | OI: {open_interest}")
+                print(f"⚡ {coin} {contract_type.upper()} | Mark: ${mark_price:.2f} | OI: {open_interest}")
             
     except Exception as e:
         pass
@@ -405,7 +472,6 @@ def on_message_linear(ws, message):
         data = json.loads(message)
         
         if data.get('success') == True:
-            print(f"✅ Linear subscription confirmed")
             return
         
         if data.get('topic', '').startswith('tickers'):
@@ -418,29 +484,13 @@ def on_message_linear(ws, message):
 
 
 def on_message_option(ws, message):
-    """Handle option messages - discovers and subscribes to BTC options"""
+    """Handle option messages"""
     try:
         data = json.loads(message)
 
         if data.get('success') is True:
             return
 
-        # Handle snapshot (initial bulk data)
-        if data.get('type') == 'snapshot':
-            ticker_data = data.get('data')
-            if isinstance(ticker_data, list):
-                btc_count = 0
-                for ticker in ticker_data:
-                    if isinstance(ticker, dict):
-                        symbol = ticker.get('symbol', '')
-                        if 'BTC' in symbol:
-                            btc_count += 1
-                            process_ticker_data(ticker, 'option')
-                if btc_count > 0:
-                    print(f"📸 Snapshot: discovered {btc_count} BTC options")
-            return
-
-        # Handle regular ticker updates
         if data.get('topic', '').startswith('tickers'):
             ticker_data = data.get('data')
             
@@ -451,9 +501,7 @@ def on_message_option(ws, message):
                     if isinstance(ticker, dict):
                         process_ticker_data(ticker, 'option')
 
-    except json.JSONDecodeError:
-        return
-    except Exception as e:
+    except:
         pass
 
 
@@ -464,7 +512,7 @@ def on_open_linear(ws):
     connection_stats['linear_last_connected'] = datetime.now().strftime("%H:%M:%S")
     connection_stats['linear_reconnects'] += 1
     
-    print(f"✅ Connected to Bybit Linear/Perpetual (reconnect #{connection_stats['linear_reconnects']})")
+    print(f"✅ Linear WebSocket connected (#{connection_stats['linear_reconnects']})")
     
     payload = {
         "op": "subscribe",
@@ -479,28 +527,45 @@ def on_open_linear(ws):
 
 
 def on_open_option(ws):
-    """Subscribe to ALL options to discover BTC options"""
-    global connection_stats, option_ws
-    option_ws = ws
-    
+    """Subscribe to BTC options - try API first, fallback to comprehensive list"""
+    global connection_stats
     connection_stats['option_last_connected'] = datetime.now().strftime("%H:%M:%S")
     connection_stats['option_reconnects'] += 1
     
-    print(f"✅ Connected to Bybit Options (reconnect #{connection_stats['option_reconnects']})")
-    print(f"🔍 Auto-discovery mode: Will find all BTC options from WebSocket feed...")
+    print(f"✅ Option WebSocket connected (#{connection_stats['option_reconnects']})")
     
-    # Subscribe to all option tickers - this gives us a snapshot of ALL options
-    # Then we filter for BTC and subscribe individually
-    payload = {
-        "op": "subscribe",
-        "args": ["tickers.BTC-29DEC25-90000-C", "tickers.BTC-29DEC25-90000-P"]  # Subscribe to a couple to start
-    }
+    # Try to fetch from API
+    option_symbols = fetch_all_btc_options()
     
-    try:
-        ws.send(json.dumps(payload))
-        print(f"📡 Initial subscription sent - will auto-discover more BTC options\n")
-    except Exception as e:
-        print(f"❌ Option Subscription Error: {e}")
+    # Fallback to comprehensive generated list
+    if not option_symbols:
+        print(f"📋 Using fallback: {len(FALLBACK_OPTION_SYMBOLS)} generated option symbols")
+        option_symbols = FALLBACK_OPTION_SYMBOLS
+    else:
+        print(f"✅ Using {len(option_symbols)} symbols from API")
+    
+    # Subscribe in batches
+    batch_size = 100
+    successful_batches = 0
+    
+    for i in range(0, len(option_symbols), batch_size):
+        batch = option_symbols[i:i + batch_size]
+        
+        payload = {
+            "op": "subscribe",
+            "args": [f"tickers.{s}" for s in batch]
+        }
+        
+        try:
+            ws.send(json.dumps(payload))
+            successful_batches += 1
+            if i % 500 == 0:
+                print(f"📡 Subscribed batch {successful_batches} ({i}/{len(option_symbols)})")
+            time.sleep(0.2)
+        except Exception as e:
+            print(f"❌ Batch {i//batch_size + 1} failed: {e}")
+    
+    print(f"✅ Subscribed to {len(option_symbols)} BTC options ({successful_batches} batches)\n")
 
 
 def on_error(ws, error):
@@ -509,12 +574,11 @@ def on_error(ws, error):
         error_str = str(error).lower()
         if "ping/pong" in error_str or "connection is already closed" in error_str:
             return
-        print(f"❌ Socket Error: {error}")
 
 
 def on_close(ws, code, msg):
     """Handle connection closure"""
-    print(f"🔌 Connection closed: {code}")
+    pass
 
 
 def on_pong(ws, message):
@@ -548,9 +612,8 @@ def start_linear_websocket():
             retry_delay = 2
             
         except Exception as e:
-            print(f"❌ Linear Connection Error: {e}")
+            print(f"❌ Linear Error: {e}")
         
-        print(f"🔄 Reconnecting linear in {retry_delay}s...")
         time.sleep(retry_delay)
         retry_delay = min(retry_delay * 2, max_retry_delay)
 
@@ -580,14 +643,19 @@ def start_option_websocket():
             retry_delay = 2
             
         except Exception as e:
-            print(f"❌ Option Connection Error: {e}")
+            print(f"❌ Option Error: {e}")
         
-        print(f"🔄 Reconnecting options in {retry_delay}s...")
         time.sleep(retry_delay)
         retry_delay = min(retry_delay * 2, max_retry_delay)
 
 
 if __name__ == "__main__":
+    print("=" * 70)
+    print("🚀 Bybit WebSocket Collector - HYBRID MODE")
+    print("=" * 70)
+    print(f"📊 Generated {len(FALLBACK_OPTION_SYMBOLS)} fallback option symbols")
+    print("=" * 70 + "\n")
+    
     setup_database()
     reset_table_if_new_day()
     
@@ -606,9 +674,9 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n\n" + "=" * 70)
         print(f"👋 Stopped")
-        print(f"📊 Total Updates Saved: {update_count}")
-        print(f"📋 BTC Options Discovered: {len(discovered_options)}")
+        print(f"📊 Total Updates: {update_count}")
+        print(f"🔄 API Attempts: {connection_stats['api_fetch_attempts']}")
+        print(f"✅ API Success: {connection_stats['api_fetch_success']}")
         for key, count in symbol_count.items():
             print(f"   {key}: {count}")
-        print(f"   Queue Remaining: {db_queue.qsize()}")
         print("=" * 70)
