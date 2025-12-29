@@ -1,7 +1,7 @@
 """
 Bybit WebSocket Collector - REAL-TIME VERSION
 MySQL Implementation with bybit_data table
-Fixed: Proper contract type classification and display
+Fixed: Option data collection for Railway deployment
 """
 import websocket
 import json
@@ -19,8 +19,6 @@ from collections import defaultdict
 WS_URL_LINEAR = "wss://stream.bybit.com/v5/public/linear"
 WS_URL_OPTION = "wss://stream.bybit.com/v5/public/option"
 
-
-
 # MySQL Configuration - Using environment variables for Railway
 MYSQL_CONFIG = {
     'host': os.getenv('MYSQLHOST', os.getenv('MYSQL_HOST', 'localhost')),
@@ -31,8 +29,6 @@ MYSQL_CONFIG = {
 }
 
 TABLE_NAME = 'bybit_data'
-MAX_OPTION_SUBS = 600   # ✅ SAFE limit for Railway
-
 
 # Queue for non-blocking DB writes
 db_queue = Queue(maxsize=10000)
@@ -52,8 +48,45 @@ connection_stats = {
 connection_pool = None
 
 
-
-
+def get_active_options():
+    """Fetch active BTC and ETH options from REST API"""
+    options = []
+    
+    try:
+        # Get BTC options
+        print("🔍 Fetching active BTC options...")
+        url = "https://api.bybit.com/v5/market/tickers?category=option&baseCoin=BTC"
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        
+        if data.get('retCode') == 0:
+            for item in data.get('result', {}).get('list', []):
+                symbol = item.get('symbol')
+                if symbol:
+                    options.append(f"tickers.{symbol}")
+        
+        print(f"   Found {len(options)} BTC options")
+        
+        # Get ETH options
+        print("🔍 Fetching active ETH options...")
+        url = "https://api.bybit.com/v5/market/tickers?category=option&baseCoin=ETH"
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        
+        eth_count = 0
+        if data.get('retCode') == 0:
+            for item in data.get('result', {}).get('list', []):
+                symbol = item.get('symbol')
+                if symbol:
+                    options.append(f"tickers.{symbol}")
+                    eth_count += 1
+        
+        print(f"   Found {eth_count} ETH options")
+        
+    except Exception as e:
+        print(f"❌ Error fetching options: {e}")
+    
+    return options
 
 
 def setup_database():
@@ -420,36 +453,41 @@ def on_message_linear(ws, message):
         
         # Handle ticker data
         if data.get('topic', '').startswith('tickers'):
-            ticker = data.get('data')
-            if isinstance(ticker, dict):
-                process_ticker_data(ticker, 'linear')
-
+            ticker_data = data.get('data', {})
+            if ticker_data:
+                process_ticker_data(ticker_data, 'linear')
                 
     except Exception as e:
         pass  # Ignore parsing errors
 
 
 def on_message_option(ws, message):
+    """Handle option messages - FIXED to handle both dict and list formats"""
     try:
         data = json.loads(message)
-
+        
+        # Check for successful subscription
         if data.get('success') is True:
-            print("✅ Option subscription confirmed")
+            print(f"✅ Option subscription confirmed")
             return
-
+        
+        # Handle ticker data
         if data.get('topic', '').startswith('tickers'):
-            ticker_list = data.get('data', [])
-
-            # ✅ OPTIONS SEND LIST, NOT DICT
-            if isinstance(ticker_list, list):
-                for ticker in ticker_list:
-                    process_ticker_data(ticker, 'option')
-
-    except json.JSONDecodeError:
-        return
+            ticker_data = data.get('data')
+            
+            if not ticker_data:
+                return
+            
+            # Handle both dict (single ticker) and list (multiple tickers)
+            if isinstance(ticker_data, dict):
+                process_ticker_data(ticker_data, 'option')
+            elif isinstance(ticker_data, list):
+                for ticker in ticker_data:
+                    if isinstance(ticker, dict):
+                        process_ticker_data(ticker, 'option')
+                
     except Exception as e:
-        print(f"❌ Option message error: {e}")
-
+        pass  # Ignore parsing errors
 
 
 def on_open_linear(ws):
@@ -477,46 +515,41 @@ def on_open_linear(ws):
         print(f"❌ Linear Subscription Error: {e}")
 
 
-def get_limited_option_symbols():
-    """Fetch option symbols and limit count for Railway safety"""
-    url = "https://api.bybit.com/v5/market/instruments-info"
-    params = {"category": "option"}
-    
-    resp = requests.get(url, params=params, timeout=10).json()
-    symbols = []
-
-    for item in resp.get("result", {}).get("list", []):
-        symbol = item.get("symbol")
-        if symbol and ("BTC" in symbol or "ETH" in symbol):
-            symbols.append(symbol)
-
-        if len(symbols) >= MAX_OPTION_SUBS:
-            break
-
-    print(f"🔍 Loaded {len(symbols)} option symbols (LIMITED)")
-    return symbols
-
 def on_open_option(ws):
+    """Subscribe to BTC and ETH option tickers - ALL ACTIVE OPTIONS"""
     global connection_stats
     connection_stats['option_last_connected'] = datetime.now().strftime("%H:%M:%S")
     connection_stats['option_reconnects'] += 1
-
+    
     print(f"✅ Connected to Bybit Options (reconnect #{connection_stats['option_reconnects']})")
-
-    symbols = get_limited_option_symbols()
-
-    # Subscribe in SAFE batches of 50
-    batch_size = 50
-    for i in range(0, len(symbols), batch_size):
-        batch = symbols[i:i + batch_size]
+    
+    # Fetch active options
+    option_symbols = get_active_options()
+    
+    if not option_symbols:
+        print("⚠️  No options found, will retry later")
+        return
+    
+    # Bybit allows max 2000 args per subscription for options
+    # Split into chunks if needed
+    chunk_size = 500  # Conservative limit
+    
+    for i in range(0, len(option_symbols), chunk_size):
+        chunk = option_symbols[i:i + chunk_size]
+        
         payload = {
             "op": "subscribe",
-            "args": [f"tickers.{s}" for s in batch]
+            "args": chunk
         }
-        ws.send(json.dumps(payload))
-        print(f"📡 Subscribed to {len(batch)} options")
-        time.sleep(0.2)  # VERY IMPORTANT (rate-limit protection)
-
+        
+        try:
+            ws.send(json.dumps(payload))
+            print(f"📡 Subscribed to {len(chunk)} options (batch {i//chunk_size + 1})")
+            time.sleep(0.5)  # Small delay between batches
+        except Exception as e:
+            print(f"❌ Option Subscription Error: {e}")
+    
+    print(f"✅ Total {len(option_symbols)} options subscribed\n")
 
 
 def on_error(ws, error):
