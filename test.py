@@ -13,6 +13,14 @@ import os
 from datetime import datetime, timezone
 from queue import Queue
 from collections import defaultdict
+import requests
+
+# Optional: Use proxy if configured
+PROXY_URL = os.getenv('PROXY_URL', None)  # e.g., "http://your-proxy.com:8080"
+PROXY_CONFIG = {
+    'http': PROXY_URL,
+    'https': PROXY_URL
+} if PROXY_URL else None
 
 # Bybit WebSocket endpoints
 WS_URL_LINEAR = "wss://stream.bybit.com/v5/public/linear"
@@ -453,40 +461,193 @@ def on_open_linear(ws):
         print(f"❌ Linear Subscription Error: {e}")
 
 
+def get_active_options_via_proxy():
+    """Fetch active BTC and ETH options using multiple fallback methods"""
+    options = []
+    max_retries = 3
+    
+    # Check if proxy is configured
+    if PROXY_CONFIG:
+        print(f"🔐 Using proxy: {PROXY_URL}")
+    
+    # Method 1: Try direct API call with different headers/approaches
+    for attempt in range(max_retries):
+        try:
+            print(f"🔍 Fetching active BTC options (attempt {attempt + 1}/{max_retries})...")
+            
+            # Use cloudflare-bypassing headers
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-origin',
+            }
+            
+            # Try different API endpoints
+            endpoints = [
+                "https://api.bybit.com/v5/market/tickers?category=option&baseCoin=BTC",
+                "https://api.bytick.com/v5/market/tickers?category=option&baseCoin=BTC",  # Alternative domain
+            ]
+            
+            for endpoint in endpoints:
+                try:
+                    response = requests.get(
+                        endpoint, 
+                        timeout=20, 
+                        headers=headers, 
+                        proxies=PROXY_CONFIG,  # Use proxy if configured
+                        allow_redirects=True
+                    )
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        
+                        if data.get('retCode') == 0:
+                            for item in data.get('result', {}).get('list', []):
+                                symbol = item.get('symbol')
+                                if symbol:
+                                    options.append(f"tickers.{symbol}")
+                            print(f"   ✅ Found {len(options)} BTC options via {endpoint}")
+                            break
+                    else:
+                        print(f"   HTTP {response.status_code} from {endpoint}")
+                except Exception as e:
+                    print(f"   Failed {endpoint}: {str(e)[:100]}")
+                    continue
+            
+            if options:
+                break
+                
+            # If still no success, wait before retry
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt
+                print(f"   Waiting {wait_time}s before retry...")
+                time.sleep(wait_time)
+                
+        except Exception as e:
+            print(f"   ❌ Error: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+    
+    # Get ETH options if BTC succeeded
+    if options:
+        try:
+            print(f"🔍 Fetching active ETH options...")
+            
+            endpoints = [
+                "https://api.bybit.com/v5/market/tickers?category=option&baseCoin=ETH",
+                "https://api.bytick.com/v5/market/tickers?category=option&baseCoin=ETH",
+            ]
+            
+            for endpoint in endpoints:
+                try:
+                    response = requests.get(
+                        endpoint, 
+                        timeout=20, 
+                        headers=headers, 
+                        proxies=PROXY_CONFIG,
+                        allow_redirects=True
+                    )
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        eth_count = 0
+                        
+                        if data.get('retCode') == 0:
+                            for item in data.get('result', {}).get('list', []):
+                                symbol = item.get('symbol')
+                                if symbol:
+                                    options.append(f"tickers.{symbol}")
+                                    eth_count += 1
+                            print(f"   ✅ Found {eth_count} ETH options")
+                            break
+                except:
+                    continue
+                    
+        except Exception as e:
+            print(f"   ❌ ETH fetch error: {e}")
+    
+    # Method 2: Try using instruments-info endpoint as fallback
+    if not options:
+        print("🔄 Trying alternative endpoint: instruments-info...")
+        try:
+            url = "https://api.bybit.com/v5/market/instruments-info?category=option&status=Trading&limit=1000"
+            response = requests.get(url, timeout=20, headers=headers, proxies=PROXY_CONFIG)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('retCode') == 0:
+                    for item in data.get('result', {}).get('list', []):
+                        symbol = item.get('symbol')
+                        if symbol and ('BTC' in symbol or 'ETH' in symbol):
+                            options.append(f"tickers.{symbol}")
+                    print(f"   ✅ Found {len(options)} options via instruments-info")
+        except Exception as e:
+            print(f"   ❌ Instruments-info failed: {e}")
+    
+    if not options:
+        print(f"⚠️  Failed after all attempts. Railway IP may be blocked by Bybit.")
+        print(f"    Solutions:")
+        print(f"    1. Set PROXY_URL environment variable in Railway")
+        print(f"    2. Or upload option_symbols.json file as backup")
+    
+    return options
+
+
+def load_option_symbols_from_file():
+    """Load option symbols from JSON file as fallback"""
+    try:
+        import os
+        file_path = 'option_symbols.json'
+        
+        if not os.path.exists(file_path):
+            return []
+        
+        with open(file_path, 'r') as f:
+            symbols = json.load(f)
+        
+        print(f"📂 Loaded {len(symbols)} option symbols from backup file")
+        return [f"tickers.{s}" for s in symbols]
+        
+    except Exception as e:
+        return []
+
+
 def on_open_option(ws):
-    """Subscribe to ALL option tickers using wildcard pattern"""
+    """Subscribe to BTC and ETH option tickers"""
     global connection_stats, discovered_options
     connection_stats['option_last_connected'] = datetime.now().strftime("%H:%M:%S")
     connection_stats['option_reconnects'] += 1
     
     print(f"✅ Connected to Bybit Options (reconnect #{connection_stats['option_reconnects']})")
-    print("🌐 Using WebSocket-only approach (no REST API dependency)")
     
-    # Strategy: Subscribe to broad patterns that will match BTC and ETH options
-    # Bybit sends snapshots for subscribed patterns
-    patterns = []
+    # Try fetching from API first
+    option_symbols = get_active_options_via_proxy()
     
-    # Generate common expiry patterns for current and upcoming months
-    current_year = datetime.now().year % 100  # Last 2 digits
-    months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
+    # Fallback to file if API fails
+    if not option_symbols:
+        print("📂 Falling back to local symbol file...")
+        option_symbols = load_option_symbols_from_file()
     
-    # Subscribe to ticker channels - Bybit will send all matching tickers
-    # We'll use a discovery approach: subscribe to common patterns
-    for coin in ['BTC', 'ETH']:
-        # Try subscribing to the base ticker channel for each coin
-        # This should give us ALL options for that coin
-        patterns.append(f"tickers.{coin}-*")
-    
-    if not patterns:
-        print("⚠️  No subscription patterns generated")
+    if not option_symbols:
+        print("⚠️  No option symbols available. Connection will stay open.")
+        print("    Troubleshooting:")
+        print("    1. Railway IP might be permanently blocked by Bybit")
+        print("    2. Consider using a VPN/proxy service")
+        print("    3. Or upload option_symbols.json as backup")
         return
     
-    print(f"📡 Subscribing to option patterns: {len(patterns)} patterns")
+    print(f"📊 Total options to subscribe: {len(option_symbols)}")
     
-    # Subscribe in batches
-    batch_size = 10
-    for i in range(0, len(patterns), batch_size):
-        batch = patterns[i:i + batch_size]
+    # Subscribe in safe batches
+    batch_size = 500
+    
+    for i in range(0, len(option_symbols), batch_size):
+        batch = option_symbols[i:i + batch_size]
         
         payload = {
             "op": "subscribe",
@@ -495,12 +656,12 @@ def on_open_option(ws):
         
         try:
             ws.send(json.dumps(payload))
-            print(f"   Batch {i//batch_size + 1}: {len(batch)} patterns")
-            time.sleep(0.3)
+            print(f"📡 Subscribed to {len(batch)} options (batch {i//batch_size + 1})")
+            time.sleep(0.5)
         except Exception as e:
             print(f"❌ Option Subscription Error: {e}")
     
-    print(f"✅ Pattern subscription complete. Waiting for option data...\n")
+    print(f"✅ Total {len(option_symbols)} options subscribed\n")
 
 
 def on_error(ws, error):
