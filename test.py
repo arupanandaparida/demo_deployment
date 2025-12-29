@@ -1,6 +1,6 @@
 """
-Bybit WebSocket Collector - REST API VERSION FOR RAILWAY
-Fetches ALL active BTC and ETH options automatically
+Bybit WebSocket Collector - HARDCODED SYMBOLS VERSION
+Works on Railway without REST API dependency
 """
 import websocket
 import json
@@ -8,7 +8,6 @@ import mysql.connector
 from mysql.connector import pooling
 import time
 import threading
-import requests
 import os
 from datetime import datetime, timezone
 from queue import Queue
@@ -29,6 +28,51 @@ MYSQL_CONFIG = {
 
 TABLE_NAME = 'bybit_data'
 
+# ✅ HARDCODED OPTION SYMBOLS - Add your specific symbols here
+OPTION_SYMBOLS = [
+    "BTC-30DEC25-89000-P-USDT",
+    "BTC-30DEC25-94000-C-USDT",
+    "BTC-30DEC25-91000-C-USDT",
+    "BTC-30DEC25-89000-C-USDT",
+    "BTC-30DEC25-88500-C-USDT",
+    "BTC-30DEC25-87000-C-USDT",
+    "BTC-30DEC25-87000-P-USDT",
+    "BTC-30DEC25-88500-P-USDT",
+    "BTC-30DEC25-85500-P-USDT",
+    "BTC-30DEC25-86000-C-USDT",
+    "BTC-30DEC25-84000-C-USDT",
+    "BTC-30DEC25-94000-P-USDT",
+    "BTC-30DEC25-90500-P-USDT",
+    "BTC-30DEC25-90000-C-USDT",
+    "BTC-30DEC25-88000-P-USDT",
+    "BTC-30DEC25-90500-C-USDT",
+    "BTC-30DEC25-81000-P-USDT",
+    "BTC-30DEC25-87500-P-USDT",
+    "BTC-30DEC25-89500-C-USDT",
+    "BTC-30DEC25-85000-P-USDT",
+    "BTC-30DEC25-85000-C-USDT",
+    "BTC-30DEC25-91000-P-USDT",
+    "BTC-30DEC25-84000-P-USDT",
+    "BTC-30DEC25-87500-C-USDT",
+    "BTC-30DEC25-83000-C-USDT",
+    "BTC-30DEC25-88000-C-USDT",
+    "BTC-30DEC25-89500-P-USDT",
+    "BTC-30DEC25-86500-C-USDT",
+    "BTC-30DEC25-83000-P-USDT",
+    "BTC-30DEC25-92000-P-USDT",
+    "BTC-30DEC25-82000-C-USDT",
+    "BTC-30DEC25-85500-C-USDT",
+    "BTC-30DEC25-82000-P-USDT",
+    "BTC-30DEC25-81000-C-USDT",
+    "BTC-30DEC25-86000-P-USDT",
+    "BTC-30DEC25-92000-C-USDT",
+    "BTC-30DEC25-90000-P-USDT",
+    "BTC-30DEC25-93000-C-USDT",
+    "BTC-30DEC25-86500-P-USDT",
+    "BTC-30DEC25-93000-P-USDT",
+    # Add more symbols as needed
+]
+
 # Queue for non-blocking DB writes
 db_queue = Queue(maxsize=10000)
 update_count = 0
@@ -45,47 +89,6 @@ connection_stats = {
 
 # Connection pool
 connection_pool = None
-
-
-def get_active_options():
-    """Fetch active BTC and ETH options from REST API"""
-    options = []
-    
-    try:
-        # Get BTC options
-        print("🔍 Fetching active BTC options...")
-        url = "https://api.bybit.com/v5/market/tickers?category=option&baseCoin=BTC"
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        
-        if data.get('retCode') == 0:
-            for item in data.get('result', {}).get('list', []):
-                symbol = item.get('symbol')
-                if symbol:
-                    options.append(f"tickers.{symbol}")
-        
-        print(f"   Found {len(options)} BTC options")
-        
-        # Get ETH options
-        print("🔍 Fetching active ETH options...")
-        url = "https://api.bybit.com/v5/market/tickers?category=option&baseCoin=ETH"
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        
-        eth_count = 0
-        if data.get('retCode') == 0:
-            for item in data.get('result', {}).get('list', []):
-                symbol = item.get('symbol')
-                if symbol:
-                    options.append(f"tickers.{symbol}")
-                    eth_count += 1
-        
-        print(f"   Found {eth_count} ETH options")
-        
-    except Exception as e:
-        print(f"❌ Error fetching options: {e}")
-    
-    return options
 
 
 def setup_database():
@@ -481,40 +484,33 @@ def on_open_linear(ws):
 
 
 def on_open_option(ws):
-    """Subscribe to BTC and ETH option tickers - ALL ACTIVE OPTIONS"""
+    """Subscribe to hardcoded option symbols"""
     global connection_stats
     connection_stats['option_last_connected'] = datetime.now().strftime("%H:%M:%S")
     connection_stats['option_reconnects'] += 1
     
     print(f"✅ Connected to Bybit Options (reconnect #{connection_stats['option_reconnects']})")
+    print(f"📋 Using {len(OPTION_SYMBOLS)} hardcoded option symbols")
     
-    # Fetch active options
-    option_symbols = get_active_options()
+    # Subscribe in batches
+    batch_size = 50
     
-    if not option_symbols:
-        print("⚠️  No options found, will retry later")
-        return
-    
-    # Bybit allows max 2000 args per subscription for options
-    # Split into chunks
-    chunk_size = 500
-    
-    for i in range(0, len(option_symbols), chunk_size):
-        chunk = option_symbols[i:i + chunk_size]
+    for i in range(0, len(OPTION_SYMBOLS), batch_size):
+        batch = OPTION_SYMBOLS[i:i + batch_size]
         
         payload = {
             "op": "subscribe",
-            "args": chunk
+            "args": [f"tickers.{s}" for s in batch]
         }
         
         try:
             ws.send(json.dumps(payload))
-            print(f"📡 Subscribed to {len(chunk)} options (batch {i//chunk_size + 1})")
-            time.sleep(0.5)
+            print(f"📡 Subscribed to {len(batch)} options (batch {i//batch_size + 1})")
+            time.sleep(0.2)
         except Exception as e:
             print(f"❌ Option Subscription Error: {e}")
     
-    print(f"✅ Total {len(option_symbols)} options subscribed\n")
+    print(f"✅ Total {len(OPTION_SYMBOLS)} options subscribed\n")
 
 
 def on_error(ws, error):
