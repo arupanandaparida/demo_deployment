@@ -49,43 +49,96 @@ connection_pool = None
 
 
 def get_active_options():
-    """Fetch active BTC and ETH options from REST API"""
+    """Fetch active BTC and ETH options from REST API with retry logic"""
     options = []
+    max_retries = 3
     
-    try:
-        # Get BTC options
-        print("🔍 Fetching active BTC options...")
-        url = "https://api.bybit.com/v5/market/tickers?category=option&baseCoin=BTC"
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        
-        if data.get('retCode') == 0:
-            for item in data.get('result', {}).get('list', []):
-                symbol = item.get('symbol')
-                if symbol:
-                    options.append(f"tickers.{symbol}")
-        
-        print(f"   Found {len(options)} BTC options")
-        
-        # Get ETH options
-        print("🔍 Fetching active ETH options...")
-        url = "https://api.bybit.com/v5/market/tickers?category=option&baseCoin=ETH"
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        
-        eth_count = 0
-        if data.get('retCode') == 0:
-            for item in data.get('result', {}).get('list', []):
-                symbol = item.get('symbol')
-                if symbol:
-                    options.append(f"tickers.{symbol}")
-                    eth_count += 1
-        
-        print(f"   Found {eth_count} ETH options")
-        
-    except Exception as e:
-        print(f"❌ Error fetching options: {e}")
+    for attempt in range(max_retries):
+        try:
+            # Get BTC options
+            print(f"🔍 Fetching active BTC options (attempt {attempt + 1}/{max_retries})...")
+            url = "https://api.bybit.com/v5/market/tickers?category=option&baseCoin=BTC"
+            
+            response = requests.get(url, timeout=15, headers={
+                'User-Agent': 'Mozilla/5.0',
+                'Accept': 'application/json'
+            })
+            
+            # Check HTTP status
+            if response.status_code != 200:
+                print(f"   HTTP {response.status_code}: {response.text[:100]}")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)  # Exponential backoff
+                    continue
+                return options
+            
+            # Try to parse JSON
+            try:
+                data = response.json()
+            except json.JSONDecodeError as e:
+                print(f"   JSON Parse Error: {e}")
+                print(f"   Response: {response.text[:200]}")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                return options
+            
+            if data.get('retCode') == 0:
+                for item in data.get('result', {}).get('list', []):
+                    symbol = item.get('symbol')
+                    if symbol:
+                        options.append(f"tickers.{symbol}")
+                print(f"   ✅ Found {len(options)} BTC options")
+            else:
+                print(f"   API Error: {data.get('retMsg', 'Unknown error')}")
+            
+            # Get ETH options
+            print(f"🔍 Fetching active ETH options...")
+            url = "https://api.bybit.com/v5/market/tickers?category=option&baseCoin=ETH"
+            
+            response = requests.get(url, timeout=15, headers={
+                'User-Agent': 'Mozilla/5.0',
+                'Accept': 'application/json'
+            })
+            
+            if response.status_code != 200:
+                print(f"   HTTP {response.status_code}: {response.text[:100]}")
+                return options
+            
+            try:
+                data = response.json()
+            except json.JSONDecodeError as e:
+                print(f"   JSON Parse Error: {e}")
+                return options
+            
+            eth_count = 0
+            if data.get('retCode') == 0:
+                for item in data.get('result', {}).get('list', []):
+                    symbol = item.get('symbol')
+                    if symbol:
+                        options.append(f"tickers.{symbol}")
+                        eth_count += 1
+                print(f"   ✅ Found {eth_count} ETH options")
+            else:
+                print(f"   API Error: {data.get('retMsg', 'Unknown error')}")
+            
+            # Success - return options
+            return options
+            
+        except requests.exceptions.Timeout:
+            print(f"   ⏱️ Timeout on attempt {attempt + 1}")
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+        except requests.exceptions.ConnectionError as e:
+            print(f"   🔌 Connection Error: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+        except Exception as e:
+            print(f"   ❌ Unexpected Error: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
     
+    print(f"⚠️  Failed after {max_retries} attempts")
     return options
 
 
@@ -523,12 +576,20 @@ def on_open_option(ws):
     
     print(f"✅ Connected to Bybit Options (reconnect #{connection_stats['option_reconnects']})")
     
+    # Add delay before fetching to avoid rate limits
+    time.sleep(1)
+    
     # Fetch active options
     option_symbols = get_active_options()
     
     if not option_symbols:
-        print("⚠️  No options found, will retry later")
+        print("⚠️  No options found. Connection will stay open for reconnection.")
+        print("    This might be due to Railway IP being rate-limited by Bybit.")
+        print("    The connection will automatically retry on next reconnect.\n")
+        # Keep connection alive even if fetch failed
         return
+    
+    print(f"📊 Total options to subscribe: {len(option_symbols)}")
     
     # Bybit allows max 2000 args per subscription for options
     # Split into chunks if needed
