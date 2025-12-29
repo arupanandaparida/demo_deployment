@@ -444,7 +444,15 @@
             <div class="modal-body">
                 <div id="errorMessage" class="error" style="display: none;"></div>
                 
-                <form id="strategyForm">
+               
+                    <div class="form-group">
+                            <label for="exchange">Exchange:</label>
+                            <select id="exchange" name="exchange" onchange="loadSymbols()">
+                                <option value="">--Select--</option>
+                                <option value="delta" selected>Delta</option>
+                                <option value="bybit">Bybit</option>
+                            </select>
+                    </div>
                     <!-- Row 1: Strategy, Symbol, Expiry -->
                     <div class="form-row">
                         <div class="form-group">
@@ -519,212 +527,235 @@
 
 <script>
     // Global variables
-let currentData = null;
-let currentStrategy = 'ratio';
-let noOfColumns = 5;
-let ceRatios = [];
-let ceGaps = [];
-let peRatios = [];
-let peGaps = [];
-// Separate variables for Sell column
-let ceSellRatio = { ratio1: 1, ratio2: 2 };
-let ceSellGap = 200;
-let peSellRatio = { ratio1: 1, ratio2: 2 };
-let peSellGap = 200;
-let ceITM = 2; // ITM for CE
-let peITM = 2; // ITM for PE
-let refreshInterval = null;
-let isInputFocused = false;
-let lastUpdateTime = null;
-let previousBuyValues = {};
+       let currentData = null;
+        let currentStrategy = 'ratio';
+        let noOfColumns = 5;
+        let ceRatios = [];
+        let ceGaps = [];
+        let peRatios = [];
+        let peGaps = [];
+        let ceSellRatio = { ratio1: 1, ratio2: 2 };
+        let ceSellGap = 200;
+        let peSellRatio = { ratio1: 1, ratio2: 2 };
+        let peSellGap = 200;
+        let ceITM = 2;
+        let peITM = 2;
+        let refreshInterval = null;
+        let isInputFocused = false;
+        let lastUpdateTime = null;
+        let previousBuyValues = {};
 
-// Load symbols on page load
-window.addEventListener('DOMContentLoaded', loadSymbols);
+        window.addEventListener('DOMContentLoaded', loadSymbols);
 
-// Update ratio label when strategy changes
-document.addEventListener('DOMContentLoaded', function() {
-    const strategySelect = document.getElementById('strategy');
-    strategySelect.addEventListener('change', function() {
-        const label = document.getElementById('baseRatioLabel');
-        if (this.value === 'butterfly') {
-            label.textContent = 'Base Ratio (1:X:X-1):';
-        } else {
-            label.textContent = 'Base Ratio (1:X):';
-        }
-    });
-});
-
-function openModal() {
-    document.getElementById('modalOverlay').classList.add('active');
-}
-
-function closeModal() {
-    document.getElementById('modalOverlay').classList.remove('active');
-}
-
-function closeModalOnOverlay(event) {
-    if (event.target === event.currentTarget) {
-        closeModal();
-    }
-}
-
-async function loadSymbols() {
-    try {
-        const response = await fetch('/api/symbols');
-        const data = await response.json();
-        
-        const symbolSelect = document.getElementById('symbol');
-        symbolSelect.innerHTML = '<option value="">--Select--</option>';
-        
-        data.symbols.forEach(symbol => {
-            const option = document.createElement('option');
-            option.value = symbol;
-            option.textContent = symbol;
-            symbolSelect.appendChild(option);
+        document.addEventListener('DOMContentLoaded', function() {
+            const strategySelect = document.getElementById('strategy');
+            strategySelect.addEventListener('change', function() {
+                const label = document.getElementById('baseRatioLabel');
+                if (this.value === 'butterfly') {
+                    label.textContent = 'Base Ratio (1:X:X-1):';
+                } else {
+                    label.textContent = 'Base Ratio (1:X):';
+                }
+            });
         });
-    } catch (error) {
-        showError('Failed to load symbols: ' + error.message);
-    }
-}
 
-async function loadExpiry() {
-    const symbol = document.getElementById('symbol').value;
-    const expirySelect = document.getElementById('optionExpiry');
-    
-    if (!symbol) {
-        expirySelect.innerHTML = '<option value="">--Select Symbol First--</option>';
-        return;
-    }
-    
-    expirySelect.innerHTML = '<option value="">Loading...</option>';
-    
-    try {
-        const response = await fetch(`/api/expiry?symbol=${symbol}`);
-        const data = await response.json();
-        
-        expirySelect.innerHTML = '<option value="">--Select--</option>';
-        
-        data.expiry_dates.forEach(expiry => {
-            const option = document.createElement('option');
-            option.value = expiry;
-            option.textContent = expiry;
-            expirySelect.appendChild(option);
-        });
-    } catch (error) {
-        showError('Failed to load expiry dates: ' + error.message);
-        expirySelect.innerHTML = '<option value="">Error loading</option>';
-    }
-}
+        function openModal() {
+            document.getElementById('modalOverlay').classList.add('active');
+        }
 
-async function fetchOptionsData() {
-    const strategy = document.getElementById('strategy').value;
-    const symbol = document.getElementById('symbol').value;
-    const expiry = document.getElementById('optionExpiry').value;
-    const noPortfolio = parseInt(document.getElementById('noPortfolio').value) || 10;
-    const strikeInterval = parseInt(document.getElementById('strikeInterval').value) || 1;
-    noOfColumns = parseInt(document.getElementById('noOfColumns').value) || 7;
-    const baseGap = parseInt(document.getElementById('baseGap').value) || 200;
-    
-    if (!strategy) {
-        showError('Please select a Strategy');
-        return;
-    }
-    
-    if (!symbol || !expiry) {
-        showError('Please select Symbol and Expiry');
-        return;
-    }
-    
-    currentStrategy = strategy;
-    closeModal();
-    
-    const baseRatio2 = parseInt(document.getElementById('baseRatio').value) || 2;
-    
-    ceRatios = [];
-    ceGaps = [];
-    peRatios = [];
-    peGaps = [];
-    previousBuyValues = {};
-    
-    for (let i = 0; i < noOfColumns; i++) {
-        ceRatios.push({ ratio1: 1, ratio2: baseRatio2 });
-        ceGaps.push(baseGap);
-        peRatios.push({ ratio1: 1, ratio2: baseRatio2 });
-        peGaps.push(baseGap);
-    }
-    
-    // Initialize Sell column values
-    ceSellRatio = { ratio1: 1, ratio2: baseRatio2 };
-    ceSellGap = baseGap;
-    peSellRatio = { ratio1: 1, ratio2: baseRatio2 };
-    peSellGap = baseGap;
-    
-    document.getElementById('optionsTableHead').innerHTML = '<tr><td colspan="50" class="loading">Loading options data...</td></tr>';
-    document.getElementById('optionsTableBody').innerHTML = '';
-    
-    try {
-        const response = await fetch('/api/options-data', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                symbol: symbol,
-                expiry: expiry,
-                no_portfolio: noPortfolio,
-                strike_interval: strikeInterval
-            })
-        });
-        
-        const result = await response.json();
-        
-        if (!response.ok) {
-            throw new Error(result.error || 'Failed to fetch data');
+        function closeModal() {
+            document.getElementById('modalOverlay').classList.remove('active');
         }
-        
-        currentData = result;
-        displayOptionsData(result);
-        
-        if (refreshInterval) {
-            clearInterval(refreshInterval);
-        }
-        refreshInterval = setInterval(() => refreshData(symbol, expiry, noPortfolio, strikeInterval), 1000);
-        
-    } catch (error) {
-        document.getElementById('optionsTableHead').innerHTML = 
-            `<tr><td colspan="50" class="error">Error: ${error.message}</td></tr>`;
-    }
-}
 
-async function refreshData(symbol, expiry, noPortfolio, strikeInterval) {
-    if (isInputFocused) {
-        return;
-    }
-    
-    try {
-        const response = await fetch('/api/options-data', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                symbol: symbol,
-                expiry: expiry,
-                no_portfolio: noPortfolio,
-                strike_interval: strikeInterval
-            })
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok) {
-            currentData = result;
-            displayOptionsData(result);
+        function closeModalOnOverlay(event) {
+            if (event.target === event.currentTarget) {
+                closeModal();
+            }
         }
-    } catch (error) {
-        console.error('Refresh error:', error);
-    }
-}
+
+        async function loadSymbols() {
+            const exchange = document.getElementById('exchange').value;
+            
+            if (!exchange) {
+                const symbolSelect = document.getElementById('symbol');
+                symbolSelect.innerHTML = '<option value="">--Select Exchange First--</option>';
+                document.getElementById('optionExpiry').innerHTML = '<option value="">--Select--</option>';
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/symbols?exchange=${exchange}`);
+                const data = await response.json();
+                
+                const symbolSelect = document.getElementById('symbol');
+                symbolSelect.innerHTML = '<option value="">--Select--</option>';
+                
+                data.symbols.forEach(symbol => {
+                    const option = document.createElement('option');
+                    option.value = symbol;
+                    option.textContent = symbol;
+                    symbolSelect.appendChild(option);
+                });
+                
+                // Clear expiry when exchange changes
+                document.getElementById('optionExpiry').innerHTML = '<option value="">--Select--</option>';
+            } catch (error) {
+                showError('Failed to load symbols: ' + error.message);
+            }
+        }
+
+        async function loadExpiry() {
+            const exchange = document.getElementById('exchange').value;
+            const symbol = document.getElementById('symbol').value;
+            const expirySelect = document.getElementById('optionExpiry');
+            
+            if (!exchange) {
+                showError('Please select an Exchange first');
+                expirySelect.innerHTML = '<option value="">--Select Exchange First--</option>';
+                return;
+            }
+            
+            if (!symbol) {
+                expirySelect.innerHTML = '<option value="">--Select Symbol First--</option>';
+                return;
+            }
+            
+            expirySelect.innerHTML = '<option value="">Loading...</option>';
+            
+            try {
+                const response = await fetch(`/api/expiry?exchange=${exchange}&symbol=${symbol}`);
+                const data = await response.json();
+                
+                expirySelect.innerHTML = '<option value="">--Select--</option>';
+                
+                data.expiry_dates.forEach(expiry => {
+                    const option = document.createElement('option');
+                    option.value = expiry;
+                    option.textContent = expiry;
+                    expirySelect.appendChild(option);
+                });
+            } catch (error) {
+                showError('Failed to load expiry dates: ' + error.message);
+                expirySelect.innerHTML = '<option value="">Error loading</option>';
+            }
+        }
+
+        async function fetchOptionsData() {
+            const exchange = document.getElementById('exchange').value;
+            const strategy = document.getElementById('strategy').value;
+            const symbol = document.getElementById('symbol').value;
+            const expiry = document.getElementById('optionExpiry').value;
+            const noPortfolio = parseInt(document.getElementById('noPortfolio').value) || 10;
+            const strikeInterval = parseInt(document.getElementById('strikeInterval').value) || 1;
+            noOfColumns = parseInt(document.getElementById('noOfColumns').value) || 7;
+            const baseGap = parseInt(document.getElementById('baseGap').value) || 200;
+            
+            if (!exchange) {
+                showError('Please select an Exchange');
+                return;
+            }
+            
+            if (!strategy) {
+                showError('Please select a Strategy');
+                return;
+            }
+            
+            if (!symbol || !expiry) {
+                showError('Please select Symbol and Expiry');
+                return;
+            }
+            
+            currentStrategy = strategy;
+            closeModal();
+            
+            const baseRatio2 = parseInt(document.getElementById('baseRatio').value) || 2;
+            
+            ceRatios = [];
+            ceGaps = [];
+            peRatios = [];
+            peGaps = [];
+            previousBuyValues = {};
+            
+            for (let i = 0; i < noOfColumns; i++) {
+                ceRatios.push({ ratio1: 1, ratio2: baseRatio2 });
+                ceGaps.push(baseGap);
+                peRatios.push({ ratio1: 1, ratio2: baseRatio2 });
+                peGaps.push(baseGap);
+            }
+            
+            ceSellRatio = { ratio1: 1, ratio2: baseRatio2 };
+            ceSellGap = baseGap;
+            peSellRatio = { ratio1: 1, ratio2: baseRatio2 };
+            peSellGap = baseGap;
+            
+            document.getElementById('optionsTableHead').innerHTML = '<tr><td colspan="50" class="loading">Loading options data...</td></tr>';
+            document.getElementById('optionsTableBody').innerHTML = '';
+            
+            try {
+                const response = await fetch('/api/options-data', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        exchange: exchange,
+                        symbol: symbol,
+                        expiry: expiry,
+                        no_portfolio: noPortfolio,
+                        strike_interval: strikeInterval
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.error || 'Failed to fetch data');
+                }
+                
+                currentData = result;
+                displayOptionsData(result);
+                
+                if (refreshInterval) {
+                    clearInterval(refreshInterval);
+                }
+                refreshInterval = setInterval(() => refreshData(exchange, symbol, expiry, noPortfolio, strikeInterval), 1000);
+                
+            } catch (error) {
+                document.getElementById('optionsTableHead').innerHTML = 
+                    `<tr><td colspan="50" class="error">Error: ${error.message}</td></tr>`;
+            }
+        }
+
+        async function refreshData(exchange, symbol, expiry, noPortfolio, strikeInterval) {
+            if (isInputFocused) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/options-data', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        exchange: exchange,
+                        symbol: symbol,
+                        expiry: expiry,
+                        no_portfolio: noPortfolio,
+                        strike_interval: strikeInterval
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    currentData = result;
+                    displayOptionsData(result);
+                }
+            } catch (error) {
+                console.error('Refresh error:', error);
+            }
+        }
 
 function displayOptionsData(result) {
     // Format strategy name
@@ -948,8 +979,16 @@ function calculateRatioBuy(data, currentIndex, colIndex, type) {
     const gap = (type === 'call') ? ceGaps[colIndex] : peGaps[colIndex];
     const ratio = (type === 'call') ? ceRatios[colIndex] : peRatios[colIndex];
     
+    // Calculate input1 and input2 like Python does
+    const input1 = 1.0;
+    const input2 = ratio.ratio2 / ratio.ratio1;
+    
     const currentStrike = data[currentIndex].strike_price;
-    const targetStrike = currentStrike + gap;
+    
+    // FIX: Apply gap direction based on option type (like Python)
+    const targetStrike = (type === 'call') 
+        ? currentStrike + gap   // CE: add gap
+        : currentStrike - gap;  // PE: subtract gap
     
     const l2RowIndex = data.findIndex(row => row.strike_price === targetStrike);
     
@@ -963,13 +1002,14 @@ function calculateRatioBuy(data, currentIndex, colIndex, type) {
         const l2Bid = l2Row.call ? l2Row.call.best_bid : null;
         
         if (currentAsk === null || l2Bid === null) return 0;
-        return (l2Bid * ratio.ratio2) - (currentAsk * ratio.ratio1);
+        // Use input1 and input2 like Python
+        return (l2Bid * input2) - (currentAsk * input1);
     } else {
         const currentAsk = currentRow.put ? currentRow.put.best_ask : null;
         const l2Bid = l2Row.put ? l2Row.put.best_bid : null;
         
         if (currentAsk === null || l2Bid === null) return 0;
-        return (l2Bid * ratio.ratio2) - (currentAsk * ratio.ratio1);
+        return (l2Bid * input2) - (currentAsk * input1);
     }
 }
 
@@ -977,8 +1017,16 @@ function calculateRatioSell(data, currentIndex, type) {
     const gap = (type === 'call') ? ceSellGap : peSellGap;
     const ratio = (type === 'call') ? ceSellRatio : peSellRatio;
     
+    // Calculate input1 and input2 like Python does
+    const input1 = 1.0;
+    const input2 = ratio.ratio2 / ratio.ratio1;
+    
     const currentStrike = data[currentIndex].strike_price;
-    const targetStrike = currentStrike + gap;
+    
+    // FIX: Apply gap direction based on option type (like Python)
+    const targetStrike = (type === 'call') 
+        ? currentStrike + gap   // CE: add gap
+        : currentStrike - gap;  // PE: subtract gap
     
     const l2RowIndex = data.findIndex(row => row.strike_price === targetStrike);
     
@@ -992,15 +1040,17 @@ function calculateRatioSell(data, currentIndex, type) {
         const l2Ask = l2Row.call ? l2Row.call.best_ask : null;
         
         if (currentBid === null || l2Ask === null) return 0;
-        return (currentBid * ratio.ratio1) - (l2Ask * ratio.ratio2);
+        // Use input1 and input2 like Python
+        return (currentBid * input1) - (l2Ask * input2);
     } else {
         const currentBid = currentRow.put ? currentRow.put.best_bid : null;
         const l2Ask = l2Row.put ? l2Row.put.best_ask : null;
         
         if (currentBid === null || l2Ask === null) return 0;
-        return (currentBid * ratio.ratio1) - (l2Ask * ratio.ratio2);
+        return (currentBid * input1) - (l2Ask * input2);
     }
 }
+
 
 // ============ BUTTERFLY STRATEGY CALCULATIONS ============
 function calculateButterflyBuy(data, currentIndex, colIndex, type) {
