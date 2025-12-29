@@ -152,8 +152,11 @@ def parse_bybit_symbol(symbol_str):
 
 @app.route('/')
 def index():
-    """Serve the main HTML page"""
-    return render_template('index.html')
+    return jsonify({
+        "status": "running",
+        "service": "Options Strategy API"
+    })
+
 
 
 @app.route('/api/symbols', methods=['GET'])
