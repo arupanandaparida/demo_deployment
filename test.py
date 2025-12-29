@@ -1,7 +1,6 @@
 """
-Bybit WebSocket Collector - RAILWAY VERSION
-WebSocket-Only Approach (No REST API dependency)
-Uses wildcard subscription pattern for options
+Bybit WebSocket Collector - HARDCODED SYMBOLS VERSION
+Works on Railway without REST API dependency
 """
 import websocket
 import json
@@ -13,14 +12,6 @@ import os
 from datetime import datetime, timezone
 from queue import Queue
 from collections import defaultdict
-import requests
-
-# Optional: Use proxy if configured
-PROXY_URL = os.getenv('PROXY_URL', None)  # e.g., "http://your-proxy.com:8080"
-PROXY_CONFIG = {
-    'http': PROXY_URL,
-    'https': PROXY_URL
-} if PROXY_URL else None
 
 # Bybit WebSocket endpoints
 WS_URL_LINEAR = "wss://stream.bybit.com/v5/public/linear"
@@ -36,6 +27,51 @@ MYSQL_CONFIG = {
 }
 
 TABLE_NAME = 'bybit_data'
+
+# ✅ HARDCODED OPTION SYMBOLS - Add your specific symbols here
+OPTION_SYMBOLS = [
+    "BTC-29DEC25-89000-P-USDT",
+    "BTC-29DEC25-94000-C-USDT",
+    "BTC-29DEC25-91000-C-USDT",
+    "BTC-29DEC25-89000-C-USDT",
+    "BTC-29DEC25-88500-C-USDT",
+    "BTC-29DEC25-87000-C-USDT",
+    "BTC-29DEC25-87000-P-USDT",
+    "BTC-29DEC25-88500-P-USDT",
+    "BTC-29DEC25-85500-P-USDT",
+    "BTC-29DEC25-86000-C-USDT",
+    "BTC-29DEC25-84000-C-USDT",
+    "BTC-29DEC25-94000-P-USDT",
+    "BTC-29DEC25-90500-P-USDT",
+    "BTC-29DEC25-90000-C-USDT",
+    "BTC-29DEC25-88000-P-USDT",
+    "BTC-29DEC25-90500-C-USDT",
+    "BTC-29DEC25-81000-P-USDT",
+    "BTC-29DEC25-87500-P-USDT",
+    "BTC-29DEC25-89500-C-USDT",
+    "BTC-29DEC25-85000-P-USDT",
+    "BTC-29DEC25-85000-C-USDT",
+    "BTC-29DEC25-91000-P-USDT",
+    "BTC-29DEC25-84000-P-USDT",
+    "BTC-29DEC25-87500-C-USDT",
+    "BTC-29DEC25-83000-C-USDT",
+    "BTC-29DEC25-88000-C-USDT",
+    "BTC-29DEC25-89500-P-USDT",
+    "BTC-29DEC25-86500-C-USDT",
+    "BTC-29DEC25-83000-P-USDT",
+    "BTC-29DEC25-92000-P-USDT",
+    "BTC-29DEC25-82000-C-USDT",
+    "BTC-29DEC25-85500-C-USDT",
+    "BTC-29DEC25-82000-P-USDT",
+    "BTC-29DEC25-81000-C-USDT",
+    "BTC-29DEC25-86000-P-USDT",
+    "BTC-29DEC25-92000-C-USDT",
+    "BTC-29DEC25-90000-P-USDT",
+    "BTC-29DEC25-93000-C-USDT",
+    "BTC-29DEC25-86500-P-USDT",
+    "BTC-29DEC25-93000-P-USDT",
+    # Add more symbols as needed
+]
 
 # Queue for non-blocking DB writes
 db_queue = Queue(maxsize=10000)
@@ -53,9 +89,6 @@ connection_stats = {
 
 # Connection pool
 connection_pool = None
-
-# Track discovered options
-discovered_options = set()
 
 
 def setup_database():
@@ -232,7 +265,7 @@ def database_worker():
                 update_count += len(batch)
                 
                 if update_count % 50 == 0:
-                    print(f"💾 Updates: {update_count} | Options discovered: {len(discovered_options)} | Queue: {db_queue.qsize()}")
+                    print(f"💾 Updates: {update_count} | Queue: {db_queue.qsize()}")
                 
                 batch = []
                 last_write = time.time()
@@ -264,9 +297,9 @@ def safe_float(value, default=0.0):
 def determine_contract_type(symbol, category):
     """Determine specific contract type"""
     if category == "option":
-        if '-C-' in symbol or symbol.endswith('-C'):
+        if '-C-' in symbol or symbol.endswith('-C-USDT'):
             return 'call_option'
-        elif '-P-' in symbol or symbol.endswith('-P'):
+        elif '-P-' in symbol or symbol.endswith('-P-USDT'):
             return 'put_option'
         else:
             parts = symbol.split('-')
@@ -291,7 +324,7 @@ def determine_contract_type(symbol, category):
 
 def process_ticker_data(data, category):
     """Process Bybit ticker data"""
-    global symbol_count, symbol_data_cache, discovered_options
+    global symbol_count, symbol_data_cache
     
     try:
         symbol = data.get('symbol')
@@ -302,23 +335,13 @@ def process_ticker_data(data, category):
         if 'BTC' not in symbol and 'ETH' not in symbol:
             return
         
-        # Track discovered options
-        if category == 'option':
-            if symbol not in discovered_options:
-                discovered_options.add(symbol)
-                if len(discovered_options) % 50 == 0:
-                    print(f"🔍 Discovered {len(discovered_options)} options so far...")
-        
-        # Initialize cache
         if symbol not in symbol_data_cache:
             symbol_data_cache[symbol] = {}
         
-        # Update cache
         symbol_data_cache[symbol].update({k: v for k, v in data.items() if v is not None and v != ''})
         
         cached = symbol_data_cache[symbol]
         
-        # Extract prices
         mark_price = safe_float(cached.get('markPrice'))
         last_price = safe_float(cached.get('lastPrice'))
         
@@ -403,9 +426,9 @@ def on_message_linear(ws, message):
             return
         
         if data.get('topic', '').startswith('tickers'):
-            ticker_data = data.get('data', {})
-            if ticker_data:
-                process_ticker_data(ticker_data, 'linear')
+            ticker = data.get('data')
+            if isinstance(ticker, dict):
+                process_ticker_data(ticker, 'linear')
                 
     except Exception as e:
         pass
@@ -415,16 +438,13 @@ def on_message_option(ws, message):
     """Handle option messages"""
     try:
         data = json.loads(message)
-        
+
         if data.get('success') is True:
-            print(f"✅ Option subscription confirmed")
+            print("✅ Option subscription confirmed")
             return
-        
+
         if data.get('topic', '').startswith('tickers'):
             ticker_data = data.get('data')
-            
-            if not ticker_data:
-                return
             
             if isinstance(ticker_data, dict):
                 process_ticker_data(ticker_data, 'option')
@@ -432,7 +452,9 @@ def on_message_option(ws, message):
                 for ticker in ticker_data:
                     if isinstance(ticker, dict):
                         process_ticker_data(ticker, 'option')
-                
+
+    except json.JSONDecodeError:
+        return
     except Exception as e:
         pass
 
@@ -461,207 +483,34 @@ def on_open_linear(ws):
         print(f"❌ Linear Subscription Error: {e}")
 
 
-def get_active_options_via_proxy():
-    """Fetch active BTC and ETH options using multiple fallback methods"""
-    options = []
-    max_retries = 3
-    
-    # Check if proxy is configured
-    if PROXY_CONFIG:
-        print(f"🔐 Using proxy: {PROXY_URL}")
-    
-    # Method 1: Try direct API call with different headers/approaches
-    for attempt in range(max_retries):
-        try:
-            print(f"🔍 Fetching active BTC options (attempt {attempt + 1}/{max_retries})...")
-            
-            # Use cloudflare-bypassing headers
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'application/json',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Sec-Fetch-Dest': 'empty',
-                'Sec-Fetch-Mode': 'cors',
-                'Sec-Fetch-Site': 'same-origin',
-            }
-            
-            # Try different API endpoints
-            endpoints = [
-                "https://api.bybit.com/v5/market/tickers?category=option&baseCoin=BTC",
-                "https://api.bytick.com/v5/market/tickers?category=option&baseCoin=BTC",  # Alternative domain
-            ]
-            
-            for endpoint in endpoints:
-                try:
-                    response = requests.get(
-                        endpoint, 
-                        timeout=20, 
-                        headers=headers, 
-                        proxies=PROXY_CONFIG,  # Use proxy if configured
-                        allow_redirects=True
-                    )
-                    
-                    if response.status_code == 200:
-                        data = response.json()
-                        
-                        if data.get('retCode') == 0:
-                            for item in data.get('result', {}).get('list', []):
-                                symbol = item.get('symbol')
-                                if symbol:
-                                    options.append(f"tickers.{symbol}")
-                            print(f"   ✅ Found {len(options)} BTC options via {endpoint}")
-                            break
-                    else:
-                        print(f"   HTTP {response.status_code} from {endpoint}")
-                except Exception as e:
-                    print(f"   Failed {endpoint}: {str(e)[:100]}")
-                    continue
-            
-            if options:
-                break
-                
-            # If still no success, wait before retry
-            if attempt < max_retries - 1:
-                wait_time = 2 ** attempt
-                print(f"   Waiting {wait_time}s before retry...")
-                time.sleep(wait_time)
-                
-        except Exception as e:
-            print(f"   ❌ Error: {e}")
-            if attempt < max_retries - 1:
-                time.sleep(2 ** attempt)
-    
-    # Get ETH options if BTC succeeded
-    if options:
-        try:
-            print(f"🔍 Fetching active ETH options...")
-            
-            endpoints = [
-                "https://api.bybit.com/v5/market/tickers?category=option&baseCoin=ETH",
-                "https://api.bytick.com/v5/market/tickers?category=option&baseCoin=ETH",
-            ]
-            
-            for endpoint in endpoints:
-                try:
-                    response = requests.get(
-                        endpoint, 
-                        timeout=20, 
-                        headers=headers, 
-                        proxies=PROXY_CONFIG,
-                        allow_redirects=True
-                    )
-                    
-                    if response.status_code == 200:
-                        data = response.json()
-                        eth_count = 0
-                        
-                        if data.get('retCode') == 0:
-                            for item in data.get('result', {}).get('list', []):
-                                symbol = item.get('symbol')
-                                if symbol:
-                                    options.append(f"tickers.{symbol}")
-                                    eth_count += 1
-                            print(f"   ✅ Found {eth_count} ETH options")
-                            break
-                except:
-                    continue
-                    
-        except Exception as e:
-            print(f"   ❌ ETH fetch error: {e}")
-    
-    # Method 2: Try using instruments-info endpoint as fallback
-    if not options:
-        print("🔄 Trying alternative endpoint: instruments-info...")
-        try:
-            url = "https://api.bybit.com/v5/market/instruments-info?category=option&status=Trading&limit=1000"
-            response = requests.get(url, timeout=20, headers=headers, proxies=PROXY_CONFIG)
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('retCode') == 0:
-                    for item in data.get('result', {}).get('list', []):
-                        symbol = item.get('symbol')
-                        if symbol and ('BTC' in symbol or 'ETH' in symbol):
-                            options.append(f"tickers.{symbol}")
-                    print(f"   ✅ Found {len(options)} options via instruments-info")
-        except Exception as e:
-            print(f"   ❌ Instruments-info failed: {e}")
-    
-    if not options:
-        print(f"⚠️  Failed after all attempts. Railway IP may be blocked by Bybit.")
-        print(f"    Solutions:")
-        print(f"    1. Set PROXY_URL environment variable in Railway")
-        print(f"    2. Or upload option_symbols.json file as backup")
-    
-    return options
-
-
-def load_option_symbols_from_file():
-    """Load option symbols from JSON file as fallback"""
-    try:
-        import os
-        file_path = 'option_symbols.json'
-        
-        if not os.path.exists(file_path):
-            return []
-        
-        with open(file_path, 'r') as f:
-            symbols = json.load(f)
-        
-        print(f"📂 Loaded {len(symbols)} option symbols from backup file")
-        return [f"tickers.{s}" for s in symbols]
-        
-    except Exception as e:
-        return []
-
-
 def on_open_option(ws):
-    """Subscribe to BTC and ETH option tickers"""
-    global connection_stats, discovered_options
+    """Subscribe to hardcoded option symbols"""
+    global connection_stats
     connection_stats['option_last_connected'] = datetime.now().strftime("%H:%M:%S")
     connection_stats['option_reconnects'] += 1
     
     print(f"✅ Connected to Bybit Options (reconnect #{connection_stats['option_reconnects']})")
+    print(f"📋 Using {len(OPTION_SYMBOLS)} hardcoded option symbols")
     
-    # Try fetching from API first
-    option_symbols = get_active_options_via_proxy()
+    # Subscribe in batches
+    batch_size = 50
     
-    # Fallback to file if API fails
-    if not option_symbols:
-        print("📂 Falling back to local symbol file...")
-        option_symbols = load_option_symbols_from_file()
-    
-    if not option_symbols:
-        print("⚠️  No option symbols available. Connection will stay open.")
-        print("    Troubleshooting:")
-        print("    1. Railway IP might be permanently blocked by Bybit")
-        print("    2. Consider using a VPN/proxy service")
-        print("    3. Or upload option_symbols.json as backup")
-        return
-    
-    print(f"📊 Total options to subscribe: {len(option_symbols)}")
-    
-    # Subscribe in safe batches
-    batch_size = 500
-    
-    for i in range(0, len(option_symbols), batch_size):
-        batch = option_symbols[i:i + batch_size]
+    for i in range(0, len(OPTION_SYMBOLS), batch_size):
+        batch = OPTION_SYMBOLS[i:i + batch_size]
         
         payload = {
             "op": "subscribe",
-            "args": batch
+            "args": [f"tickers.{s}" for s in batch]
         }
         
         try:
             ws.send(json.dumps(payload))
             print(f"📡 Subscribed to {len(batch)} options (batch {i//batch_size + 1})")
-            time.sleep(0.5)
+            time.sleep(0.2)
         except Exception as e:
             print(f"❌ Option Subscription Error: {e}")
     
-    print(f"✅ Total {len(option_symbols)} options subscribed\n")
+    print(f"✅ Total {len(OPTION_SYMBOLS)} options subscribed\n")
 
 
 def on_error(ws, error):
@@ -768,7 +617,6 @@ if __name__ == "__main__":
         print("\n\n" + "=" * 70)
         print(f"👋 Stopped")
         print(f"📊 Total Updates Saved: {update_count}")
-        print(f"📊 Options Discovered: {len(discovered_options)}")
         for key, count in symbol_count.items():
             print(f"   {key}: {count}")
         print(f"   Queue Remaining: {db_queue.qsize()}")
