@@ -1,0 +1,2145 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Strategy Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        /* Header section */
+        .dashboard-header {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .header-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+        }
+
+        .saved-configs, .dashboard-header {
+            align-items: center;
+        }
+
+        .config-controls button,
+        .config-controls select {
+            margin-right: 10px;
+        }
+        
+        .dashboard-title {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        .global-controls {
+            display: flex;
+            gap: 10px;
+        }
+        
+        /* Tables section */
+        .tables-wrapper {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 5px;
+    justify-items: center;
+}
+
+        .table-container {
+            background-color: #fff;
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+            width: 23%;
+    min-width: 350px; 
+            margin-bottom: 10px;
+            border: 1px solid #dee2e6;
+            transition: all 0.3s ease;
+        }
+
+        .table-container:hover {
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .table-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: #f8f9fa;
+            padding: 10px 15px;
+            border-radius: 4px 4px 0 0;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .table-title {
+            font-weight: bold;
+            font-size: 12px;
+        }
+
+        .table-controls {
+            display: flex;
+           
+        }
+
+        .table-settings-btn,
+        .table-close-btn {
+            border: none;
+            background-color: transparent;
+            cursor: pointer;
+            padding: 5px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            gap: 2px;
+        }
+
+        .table-settings-btn {
+            color: #2980b9;
+        }
+
+        .table-close-btn {
+            color: #e74c3c;
+        }
+
+        .table-settings-btn:hover {
+            background-color: rgba(41, 128, 185, 0.1);
+        }
+
+        .table-close-btn:hover {
+            background-color: rgba(231, 76, 60, 0.1);
+        }
+      
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th, td {
+            text-align: center;
+            font-size: 12px;
+            border-bottom: 1px solid #ddd;
+            padding: 8px;
+        }
+        
+        th {
+            font-weight: bold;
+            color: rgb(90, 84, 84);
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            padding: 10px;
+            text-align: center;
+            font-size: 10px;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        tr:hover {
+            background-color: rgba(52, 152, 219, 0.05);
+        }
+
+        .strategy-header {
+            background-color: #2c3e50;
+        }
+
+        .type-header {
+            background-color: #34495e;
+        }
+
+        .strike-header {
+            background-color: #3498db;
+        }
+
+        .value-header {
+            background-color: #27ae60;
+        }
+
+        .conversion-header {
+            background-color: #e67e22;
+        }
+
+        .reversal-header {
+            background-color: #e74c3c;
+        }
+        
+        .positive { color: #27ae60; }
+        .negative { color: #c0392b; }
+        
+        /* Controls modal */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        
+        .modal-content {
+            background-color: #fff;
+            margin: 5% auto;
+            padding: 20px;
+            border-radius: 6px;
+            width: 80%;
+            max-width: 600px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eaeaea;
+        }
+        
+        .modal-title {
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .close-modal {
+            font-size: 24px;
+            cursor: pointer;
+            color: #aaa;
+        }
+        
+        .close-modal:hover {
+            color: #333;
+        }
+        
+        /* Controls styling */
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            min-width: 150px;
+        }
+        
+        .control-group label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 12px;
+        }
+        
+        .control-group input,
+        .control-group select {
+            padding: 6px 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        button:hover {
+            background-color: #2980b9;
+        }
+        
+        #add-table-btn {
+            background-color: #27ae60;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #add-table-btn:before {
+            content: "+";
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        #add-table-btn:hover {
+            background-color: #2ecc71;
+        }
+
+        .loader {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+            margin-left: 10px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .hidden {
+            display: none;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .table-container {
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .saved-configs {
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            display: flex;
+            justify-content: flex-start;
+        }
+
+        .config-controls {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        #loadConfigSelect {
+            min-width: 250px;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #ced4da;
+        }
+
+        .btn {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            color: white;
+        }
+
+        .btn-primary {
+            background-color: #007bff;
+        }
+
+        .btn-success {
+            background-color: #28a745;
+        }
+
+        .btn-danger {
+            background-color: #dc3545;
+        }
+
+        .btn-secondary {
+            background-color: #6c757d;
+        }
+
+        .btn:hover {
+            opacity: 0.9;
+        }
+     input[type=number]::-webkit-inner-spin-button, 
+  input[type=number]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }  
+   
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header-container">
+            <div class="saved-configs">
+                <div class="config-controls">
+                    <select id="loadConfigSelect">
+                        <option value="">-- Select Saved Configuration --</option>
+                    </select>
+                    <select id="storageTypeSelect">
+                        <option value="local">Local Storage</option>
+                        <option value="server">Server Storage</option>
+                    </select>
+                    <button id="loadConfigBtn" class="btn btn-primary" style="display: none;">Load</button>
+                    <button id="saveConfigBtn" class="btn btn-success">Save Current</button>
+                    <button id="deleteConfigBtn" class="btn btn-danger">Delete</button>
+                </div>
+            </div>
+            <div class="dashboard-header">
+                <div class="global-controls">
+                    <button id="add-table-btn" class="settings-btn">Add Strategy Table</button>
+
+                
+                </div>
+            </div>
+
+
+
+        </div>
+
+        <!-- Save Configuration Modal -->
+        <div id="saveConfigModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div class="modal-title">Save Configuration</div>
+                    <span class="close-modal">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div class="control-group">
+                        <label for="configNameInput">Configuration Name:</label>
+                        <input type="text" id="configNameInput" placeholder="Enter a name for this configuration">
+                    </div>
+                    <div class="control-group" style="margin-top: 15px;">
+                        <button id="confirmSaveBtn" class="btn btn-primary">Save</button>
+                        <button class="close-modal btn btn-secondary">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tables wrapper - will be filled dynamically -->
+        <div id="tables-wrapper" class="tables-wrapper">
+            <!-- Tables will be added here dynamically -->
+        </div>
+    </div>
+
+    <!-- Strategy Settings Modal -->
+    <div id="strategyControlsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Strategy Settings</div>
+                <span class="close-modal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="controls">
+                    
+                <div class="control-group">
+                    <label for="modalExchangeSelect">Exchange:</label>
+                    <select id="modalExchangeSelect">
+                        <option value="">--Select--</option>
+                        <option value="Bybit">Bybit</option>
+                        <option value="Delta">Delta</option>
+                    </select>
+                </div>
+                    <div class="control-group">
+                        <label for="modalStrategySelect">Strategy:</label>
+                        <select id="modalStrategySelect">
+                            <option value="">--Select--</option>
+                            <!-- <option value="Jelly">Jelly</option> -->
+                            <option value="Synthetic">Synthetic</option>
+                            <option value="Butterfly">Butterfly</option>
+                            <option value="Ratio">Ratio</option>
+                            <option value="Pulse_Butterfly">Pulse Butterfly</option>
+                        </select>
+                    </div>
+                    
+                    <div class="control-group">
+                        <label for="modalSymbolSelect">Symbol:</label>
+                        <select id="modalSymbolSelect"></select>
+                    </div>
+                    
+                    <div class="control-group" id="optionExpiryGroup">
+                        <label for="modalOptionExpirySelect">Option Expiry:</label>
+                        <select id="modalOptionExpirySelect"></select>
+                    </div>
+                    
+                    <div class="control-group" id="futureExpiryGroup">
+                        <label for="modalFutureExpirySelect">Future Expiry:</label>
+                        <select id="modalFutureExpirySelect"></select>
+                    </div>
+                    <div class="control-group">
+                        <label for="modalNoPrtFolio">No. Portfolio:</label>
+                        <input type="number" id="modalNoPrtFolio" placeholder="e.g., 2"min="0">
+                    </div>
+                    
+                    <div class="control-group">
+                        <label for="modalStrikeInterval">Strike Interval:</label>
+                        <input type="number" id="modalStrikeInterval" placeholder="e.g., 50">
+                    </div>
+                    
+                    <div class="control-group" id="gapGroup">
+                        <label for="modalGap">Gap:</label>
+                        <input type="number" id="modalGap" placeholder="e.g., 1">
+                    </div>
+                    <div class="control-group" id="strategyLegTypeGroup" style="display: none;">
+                                    <label for="modalStrategyLegType">Strategy Leg Type:</label>
+                                    <select id="modalStrategyLegType">
+                                        <option value="">--Select--</option>
+                                        <option value="1331">1331</option>
+                                        <option value="1221">1221</option>
+                                    </select>
+                                    <small style="color: #666; font-size: 12px;">Select the leg type for Pulse Butterfly strategy</small>
+                    </div>
+                    <div class="control-group" id="itmFilterGroup" style="display: none;">
+                        <label for="modalItmFilterCE">ITM  CE:</label>
+                        <input type="number" id="modalItmFilterCE" placeholder="e.g., 3" min="0" value="3">
+                        <small style="color: #666; font-size: 12px;">Number of ITM CE options to show</small>
+                    </div>
+
+                    <div class="control-group" id="itmFilterPEGroup" style="display: none;">
+                        <label for="modalItmFilterPE">ITM PE:</label>
+                        <input type="number" id="modalItmFilterPE" placeholder="e.g., 3" min="0" value="3">
+                        <small style="color: #666; font-size: 12px;">Number of ITM PE options to show</small>
+                    </div>
+                    
+
+                    
+                    <div class="control-group" id="ratioGroup" style="display: none;">
+                        <label for="modalRatio1">Ratio 1:</label>
+                        <input type="number" id="modalRatio1" placeholder="e.g., 1">
+                    </div>
+                    
+                    <div class="control-group" id="ratioGroup2" style="display: none;">
+                        <label for="modalRatio2">Ratio 2:</label>
+                        <input type="number" id="modalRatio2" placeholder="e.g., 2">
+                    </div>
+                    <!-- Strike Mode (Auto/Custom) -->
+                    <div class="control-group">
+                        <label>Strike Mode:</label>
+                        <div class="radio-group">
+                           <label>
+                                <input type="radio" id="strikeModeAuto" name="strikeMode" value="auto" checked> Auto
+                            </label>
+                           <label style="margin-left: 20px;">
+                                <input type="radio" id="strikeModeCustom" name="strikeMode" value="custom"> Custom
+                            </label>
+
+                        </div>
+                    </div>
+
+                    <!-- Nearest Strike Input (visible only if custom selected) -->
+                    <div class="control-group" id="singleNearestStrikeGroup" style="display: none;">
+                        <label for="nearestStrikeInput">Nearest Strike:</label>
+                        <input type="number" id="nearestStrikeInput" placeholder="e.g., 19800" min="0">
+                    </div>
+
+                    <!-- CE/PE Nearest Strike (for Butterfly and Pulse_Butterfly) -->
+                    <div class="control-group" id="nearestStrikeGroup" style="display: none;">
+                        <label for="nearestStrikeInputCE">ATM Strike CE:</label>
+                        <input type="number" id="nearestStrikeInputCE" placeholder="e.g., 19800" min="0">
+
+                        <label for="nearestStrikeInputPE" style="margin-top: 10px;">ATM Strike PE:</label>
+                        <input type="number" id="nearestStrikeInputPE" placeholder="e.g., 19800" min="0">
+                    </div>
+
+                </div>
+                
+                <div class="control-group" style="margin-top: 15px;">
+                    <button id="applyStrategySettingsBtn">Apply Settings</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+$(document).ready(function () {
+    let options = [], futures = [];
+    let tableConfigs = [];
+    let tableCounter = 0;
+    let savedConfigurations = {};
+    let globalRefreshInterval = null;
+    let activeTableIndex = 0;
+    let isUpdating = false;
+
+    // Default values for different symbols
+    let symbolDefaults = {};
+
+    // Fetch symbol default values from backend
+    async function fetchSymbolDefaults() {
+        try {
+            const response = await fetch('/api/m1_steps');
+            if (!response.ok) {
+                throw new Error("Failed to fetch symbol defaults");
+            }
+            symbolDefaults = await response.json();
+            // console.log("Fetched symbolDefaults:", symbolDefaults);
+        } catch (error) {
+            console.error("Error fetching symbol defaults:", error);
+            symbolDefaults = {
+                "default": 10
+            };
+        }
+    }
+
+    // Get default value for a symbol after fetching data
+    function getDefaultValueForSymbol(symbol) {
+        return symbolDefaults[symbol] || symbolDefaults["default"] || 10;
+    }
+    
+
+const defaultTableConfig = {
+    exchange: 'Delta',
+    strategy: '',
+    symbol: '',
+    optionExpiry: '',
+    futureExpiry: '',
+    strikeInterval: '',
+    gap: '',
+    noPrtFolio: '',
+    ratio1: '',
+    ratio2: '',
+    itmFilterCE: 3, // Add separate ITM filter for CE
+    itmFilterPE: 3, // Add separate ITM filter for PE
+    strategyLegType: '', // Add strategy leg type for Pulse_Butterfly
+    data: [],
+    id: 0,
+    isLoading: false
+};
+
+
+
+    // Initialize application
+    function initApp() {
+        setupInitialUI();
+        loadSavedConfigurations();
+        setupEventListeners();
+        setupSavedConfigsDropdown();
+        
+        // Load options metadata first, then add table
+        $.getJSON('/api/options-strategy', function (data) {
+            options = data.options || [];
+            futures = data.futures || [];
+            // console.log('Loaded metadata:', { options: options.length, futures: futures.length });
+            addTable();
+        }).fail(function(xhr, status, error) {
+            console.error('Failed to load initial metadata:', error);
+            options = [];
+            futures = [];
+            addTable();
+        });
+        
+        setupGlobalRefreshInterval();
+    }
+
+    function setupInitialUI() {
+        // Hide expiry groups initially in modal
+        $('#optionExpiryGroup').hide();
+        $('#futureExpiryGroup').hide();
+        $('#ratioGroup').hide();
+        $('#ratioGroup2').hide();
+        $('#gapGroup').hide(); // Initially hide gap group
+        $('#itmFilterGroup').hide();
+        $('#itmFilterPEGroup').hide();
+        $('#strategyLegTypeGroup').hide(); // Initially hide strategy leg type group
+        
+        // Add the modal HTML if it doesn't exist
+        if ($('#strategyControlsModal').length === 0) {
+            const modalHtml = `
+                <div id="strategyControlsModal" class="modal" style="display: none;">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <div class="modal-title">Strategy Settings</div>
+                            <span class="close-modal">&times;</span>
+                        </div>
+                        <div class="modal-body">
+                            <div class="controls">
+                                <div class="control-group">
+                                    <label for="modalExchangeSelect">Exchange:</label>
+                                    <select id="modalExchangeSelect">
+                                        <option value="">--Select--</option>
+                                        <option value="Bybit">Bybit</option>
+                                        <option value="Delta">Delta</option>
+                                    </select>
+                                </div>
+
+                                <div class="control-group">
+                                    <label for="modalStrategySelect">Strategy:</label>
+                                    <select id="modalStrategySelect">
+                                        <option value="">--Select--</option>
+                                        <option value="Jelly">Jelly</option>
+                                        <option value="Synthetic">Synthetic</option>
+                                        <option value="Butterfly">Butterfly</option>
+                                        <option value="Ratio">Ratio</option>
+                                        <option value="Pulse_Butterfly">Pulse Butterfly</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="control-group">
+                                    <label for="modalSymbolSelect">Symbol:</label>
+                                    <select id="modalSymbolSelect">
+                                        <option value="">--Select--</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="control-group" id="optionExpiryGroup">
+                                    <label for="modalOptionExpirySelect">Option Expiry:</label>
+                                    <select id="modalOptionExpirySelect">
+                                        <option value="">--Select--</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="control-group" id="futureExpiryGroup">
+                                    <label for="modalFutureExpirySelect">Future Expiry:</label>
+                                    <select id="modalFutureExpirySelect">
+                                        <option value="">--Select--</option>
+                                    </select>
+                                </div>
+                                <div class="control-group">
+                                    <label for="modalNoPrtFolio">No. Portfolio:</label>
+                                    <input type="number" id="modalNoPrtFolio" placeholder="e.g., 2" min="0">
+                                </div>
+                                
+                                <div class="control-group">
+                                    <label for="modalStrikeInterval">Strike Interval:</label>
+                                    <input type="number" id="modalStrikeInterval" placeholder="e.g., 50" step="1">
+                                </div>
+                                
+                                <div class="control-group" id="gapGroup">
+                                    <label for="modalGap">Gap:</label>
+                                    <input type="number" id="modalGap" placeholder="e.g., 1" step="1">
+                                </div>
+                                
+                                <div class="control-group" id="strategyLegTypeGroup" style="display: none;">
+                                    <label for="modalStrategyLegType">Strategy Leg Type:</label>
+                                    <select id="modalStrategyLegType">
+                                        <option value="">--Select--</option>
+                                        <option value="1331">1331</option>
+                                        <option value="1221">1221</option>
+                                    </select>
+                                    <small style="color: #666; font-size: 12px;">Select the leg type for Pulse Butterfly strategy</small>
+                                </div>
+                                
+                                <div class="control-group" id="itmFilterGroup" style="display: none;">
+                                    <label for="modalItmFilterCE">ITM Filter CE:</label>
+                                    <input type="number" id="modalItmFilterCE" placeholder="e.g., 3" min="0" value="3">
+                                    <small style="color: #666; font-size: 12px;">Number of ITM CE options to show</small>
+                                </div>
+
+                                <div class="control-group" id="itmFilterPEGroup" style="display: none;">
+                                    <label for="modalItmFilterPE">ITM Filter PE:</label>
+                                    <input type="number" id="modalItmFilterPE" placeholder="e.g., 3" min="0" value="3">
+                                    <small style="color: #666; font-size: 12px;">Number of ITM PE options to show</small>
+                                </div>
+                                
+
+                                
+                                <div class="control-group" id="ratioGroup" style="display: none;">
+                                    <label for="modalRatio1">Ratio 1:</label>
+                                    <input type="number" id="modalRatio1" placeholder="e.g., 1">
+                                </div>
+                                
+                                <div class="control-group" id="ratioGroup2" style="display: none;">
+                                    <label for="modalRatio2">Ratio 2:</label>
+                                    <input type="number" id="modalRatio2" placeholder="e.g., 2">
+                                </div>
+                                <div class="control-group">
+                        <label>Strike Mode:</label>
+                        <div class="radio-group">
+                            <label>
+                                <input type="radio" id="strikeModeAuto" name="strikeMode" value="auto" checked> Auto
+                            </label>
+                            <label style="margin-left: 20px;">
+                                <input type="radio" id="strikeModeCustom" name="strikeMode" value="custom"> Custom
+                            </label>
+
+                        </div>
+                    </div>
+
+                    <!-- Nearest Strike Input (visible only if custom selected) -->
+                    <div class="control-group" id="singleNearestStrikeGroup" style="display: none;">
+                        <label for="nearestStrikeInput">Nearest Strike:</label>
+                        <input type="number" id="nearestStrikeInput" placeholder="e.g., 19800" min="0">
+                    </div>
+
+                    <!-- CE/PE Nearest Strike (for Butterfly and Pulse_Butterfly) -->
+                    <div class="control-group" id="nearestStrikeGroup" style="display: none;">
+                        <label for="nearestStrikeInputCE">ATM Strike CE:</label>
+                        <input type="number" id="nearestStrikeInputCE" placeholder="e.g., 19800" min="0">
+
+                        <label for="nearestStrikeInputPE" style="margin-top: 10px;">ATM Strike PE:</label>
+                        <input type="number" id="nearestStrikeInputPE" placeholder="e.g., 19800" min="0">
+                    </div>
+                            </div>
+                            
+                            <div class="control-group" style="margin-top: 15px;">
+                                <button id="applyStrategySettingsBtn">Apply Settings</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            $('body').append(modalHtml);
+        }
+    }
+    
+    function setupGlobalRefreshInterval() {
+        if (globalRefreshInterval) {
+            clearInterval(globalRefreshInterval);
+        }
+        
+        // Set interval to 1 second (1000 milliseconds)
+        globalRefreshInterval = setInterval(() => {
+            refreshAllTables(true);
+        }, 1000); // Changed to 1 second
+        
+    }
+    
+$(document).on('change', 'input[name="strikeMode"]', function () {
+    const mode = $(this).val();
+
+    // Hide both groups first
+    $('#nearestStrikeGroup').hide();
+    $('#singleNearestStrikeGroup').hide();
+
+    if (mode === 'custom') {
+        // Show based on strategy
+        if (currentStrategy === 'Butterfly' || currentStrategy === 'Pulse_Butterfly') {
+            $('#nearestStrikeGroup').show(); // Show CE/PE inputs
+        } else {
+            $('#singleNearestStrikeGroup').show(); // Show single input
+        }
+    }
+});
+;
+    function loadSavedConfigurations() {
+        const savedConfigsStr = localStorage.getItem('tableConfigurations');
+        if (savedConfigsStr) {
+            try {
+                savedConfigurations = JSON.parse(savedConfigsStr);
+            } catch (error) {
+                console.error('Error loading saved configurations:', error);
+                savedConfigurations = {};
+            }
+        }
+    }
+    
+    function setupEventListeners() {
+        $('#add-table-btn').click(addTable);
+        $(document).on('click', '.close-modal', closeAllModals);
+        $('#applyTableSettingsBtn').click(applyTableSettings);
+        $('#applyStrategySettingsBtn').click(applyStrategySettings);
+        $('#saveConfigBtn').click(saveCurrentConfiguration);
+        $('#loadConfigSelect').change(loadSelectedConfiguration);
+        $('#deleteConfigBtn').click(deleteSelectedConfiguration);
+
+       $('#modalExchangeSelect').change(function() {
+            const exchange = $(this).val();
+            handleExchangeChange(exchange);
+        });
+
+        
+        $('#modalStrategySelect').change(function() {
+            const strategy = $(this).val();
+            handleModalStrategyChange(strategy);
+        });
+
+        $('#modalSymbolSelect').change(function() {
+            const symbol = $(this).val();
+            handleModalSymbolChange(symbol);
+        });
+
+        // Add keydown event listeners for strike interval and gap fields
+        $('#modalStrikeInterval').on('keydown', function(e) {
+            handleArrowKeys(e, this, 'strikeInterval');
+        });
+
+        $('#modalGap').on('keydown', function(e) {
+            handleArrowKeys(e, this, 'gap');
+        });
+        $('#nearestStrikeInputCE').on('keydown', function (e) {
+    handleArrowKeys(e, this, 'nearestStrike');
+});
+  $('#nearestStrikeInputPE').on('keydown', function (e) {
+    handleArrowKeys(e, this, 'nearestStrike');
+});
+$('#nearestStrikeInput').on('keydown', function (e) {
+    handleArrowKeys(e, this, 'nearestStrike');
+});
+
+        $(document).on('click', '.table-settings-btn', function() {
+            const tableIndex = $(this).data('table-index');
+            openTableSettingsModal(tableIndex);
+        });
+
+        $(document).on('click', '.table-close-btn', function() {
+            const tableId = $(this).data('table-id');
+            removeTable(tableId);
+        });
+
+        $(window).click(function(event) {
+            if ($(event.target).hasClass('modal')) {
+                closeAllModals();
+            }
+        });
+    }
+
+        function handleExchangeChange(exchange) {
+        if (!exchange) return;
+        
+        // Reset dependent dropdowns
+        $('#modalSymbolSelect').val('');
+        $('#modalOptionExpirySelect').empty().append('<option value="">--Select--</option>');
+        $('#modalFutureExpirySelect').empty().append('<option value="">--Select--</option>');
+        
+        // Reload options metadata for selected exchange
+        $.getJSON(`/api/options-strategy?exchange=${exchange}`, function (data) {
+            options = data.options || [];
+            futures = data.futures || [];
+            console.log(`Loaded ${exchange} metadata:`, { options: options.length, futures: futures.length });
+            
+            // Repopulate symbol dropdown
+            populateModalSymbolDropdown();
+        }).fail(function(xhr, status, error) {
+            console.error(`Failed to load ${exchange} metadata:`, error);
+            options = [];
+            futures = [];
+        });
+    }
+
+  
+    // Function to handle arrow keys for strike interval and gap fields
+    function handleArrowKeys(event, element, fieldType) {
+        const currentSymbol = $('#modalSymbolSelect').val();
+        if (!currentSymbol) return;
+
+        const defaultStep = getDefaultValueForSymbol(currentSymbol);
+        const currentValue = parseInt($(element).val()) || 0;
+        
+        if (event.keyCode === 38) { // Up arrow
+            event.preventDefault();
+            const newValue = currentValue + defaultStep;
+            $(element).val(newValue);
+        } else if (event.keyCode === 40) { // Down arrow
+            event.preventDefault();
+            const newValue = Math.max(0, currentValue - defaultStep);
+            $(element).val(newValue);
+        }
+    }
+
+   
+
+    function addTable() {
+        const tableId = tableCounter++;
+        const config = { ...defaultTableConfig, tableIndex: tableConfigs.length, id: tableId };
+        tableConfigs.push(config);
+        
+        createTableElement(config.tableIndex, tableId);
+        openTableSettingsModal(config.tableIndex);
+    }
+
+    function createTableElement(tableIndex, tableId) {
+        const tablesWrapper = $('#tables-wrapper');
+        
+        const tableHtml = `
+            <div class="table-container" id="table-container-${tableId}">
+                <div class="table-header">
+                    <div class="table-title">
+                        <span class="table-symbol-info">Strategy</span>
+                        <span class="loading-indicator" id="loading-${tableId}" style="margin-left:5px; color: #007bff; display: none;">⟳ Updating...</span>
+                        <span class="last-update" id="lastUpdate-${tableId}" style="margin-left:5px; color: #666; font-size: 6px;"></span>
+                    </div>
+                    <div class="table-controls">
+                        <button class="table-settings-btn" data-table-index="${tableIndex}" style="margin-right: 3px;">
+                            ⚙️ 
+                        </button>
+                        <button class="table-close-btn" data-table-id="${tableId}" style="background: red; color: white; border: none; cursor: pointer;">
+                            ✕
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="results-container" id="resultsContainer-${tableId}">
+                    <p>Configure strategy and click Apply to see results</p>
+                </div>
+            </div>
+        `;
+        
+        tablesWrapper.append(tableHtml);
+        populateModalSymbolDropdown();
+    }
+
+function populateModalSymbolDropdown() {
+    const preferred = ["NIFTY", "BANKNIFTY", "MIDCPNIFTY", "FINNIFTY", "NIFTYNXT50"];
+    
+    // Combine symbols from both arrays and deduplicate
+    const allSymbols = [...new Set([
+        ...options.map(o => o.symboll), 
+        ...futures.map(f => f.symboll)
+    ])];
+
+    // Separate preferred and others
+    const topSymbols = preferred.filter(sym => allSymbols.includes(sym));
+    const remainingSymbols = allSymbols
+        .filter(sym => !preferred.includes(sym))
+        .sort();
+
+    const finalList = [...topSymbols, ...remainingSymbols];
+
+    // Fill dropdown
+    const symbolSelect = $('#modalSymbolSelect');
+    symbolSelect.empty().append('<option value="">--Select--</option>');
+
+    if (finalList.length > 0) {
+        finalList.forEach(symbol => {
+            symbolSelect.append(`<option value="${symbol}">${symbol}</option>`);
+        });
+    } else {
+        symbolSelect.append('<option value="" disabled>No symbols available</option>');
+    }
+}
+let currentStrategy = '';
+
+function handleModalStrategyChange(strategy) {
+    currentStrategy = strategy; // Save current strategy
+
+    $('#modalSymbolSelect').val('');
+    $('#modalOptionExpirySelect').empty().append('<option value="">--Select--</option>');
+    $('#modalFutureExpirySelect').empty().append('<option value="">--Select--</option>');
+
+    $('#nearestStrikeGroup').hide();
+    $('#singleNearestStrikeGroup').hide();
+
+    if (strategy === 'Jelly') {
+        $('#optionExpiryGroup').show();
+        $('#futureExpiryGroup').show();
+        $('#gapGroup').hide();
+        $('#itmFilterGroup').hide();
+        $('#itmFilterPEGroup').hide();
+        $('#strategyLegTypeGroup').hide();
+    } else if (strategy === 'Synthetic') {
+        $('#futureExpiryGroup').show();
+        $('#optionExpiryGroup').hide();
+        $('#gapGroup').hide();
+        $('#itmFilterGroup').hide();
+        $('#itmFilterPEGroup').hide();
+        $('#strategyLegTypeGroup').hide();
+    } else if (strategy === 'Butterfly') {
+        $('#futureExpiryGroup').hide();
+        $('#optionExpiryGroup').show();
+        $('#gapGroup').show();
+        $('#itmFilterGroup').show();
+        $('#itmFilterPEGroup').show();
+        $('#modalItmFilterCE').val('3');
+        $('#modalItmFilterPE').val('3');
+        $('#strategyLegTypeGroup').hide();
+    } else if (strategy === 'Pulse_Butterfly') {
+        $('#futureExpiryGroup').hide();
+        $('#optionExpiryGroup').show();
+        $('#gapGroup').show();
+        $('#itmFilterGroup').show();
+        $('#itmFilterPEGroup').show();
+        $('#modalItmFilterCE').val('3');
+        $('#modalItmFilterPE').val('3');
+        $('#strategyLegTypeGroup').show();
+        $('#modalStrategyLegType').val('');
+    } else if (strategy) {
+        $('#futureExpiryGroup').hide();
+        $('#optionExpiryGroup').show();
+        $('#gapGroup').show();
+        $('#itmFilterGroup').hide();
+        $('#itmFilterPEGroup').hide();
+        $('#strategyLegTypeGroup').hide();
+    } else {
+        $('#optionExpiryGroup').hide();
+        $('#futureExpiryGroup').hide();
+        $('#gapGroup').hide();
+        $('#itmFilterGroup').hide();
+        $('#itmFilterPEGroup').hide();
+        $('#strategyLegTypeGroup').hide();
+    }
+
+    // Show the correct strike input only if strikeMode is custom
+   $(document).on('change', 'input[name="strikeMode"]', function () {
+    const mode = $(this).val();
+
+    // Hide both strike groups first
+    $('#nearestStrikeGroup').hide();
+    $('#singleNearestStrikeGroup').hide();
+
+    if (mode === 'custom') {
+        if (currentStrategy === 'Butterfly' || currentStrategy === 'Pulse_Butterfly') {
+            $('#nearestStrikeGroup').show();
+        } else {
+            $('#singleNearestStrikeGroup').show();
+        }
+    }
+});
+
+    // Ratio strategy toggle
+    if (strategy === 'Ratio') {
+        $('#ratioGroup').show();
+        $('#ratioGroup2').show();
+    } else {
+        $('#ratioGroup').hide();
+        $('#ratioGroup2').hide();
+    }
+}
+function handleModalSymbolChange(selectedSymbol) {
+        if (!selectedSymbol) {
+            return;
+        }
+        
+        // Set default values for strike interval and gap based on selected symbol
+        const defaultValue = getDefaultValueForSymbol(selectedSymbol);
+        $('#modalStrikeInterval').val(defaultValue);
+        $('#modalGap').val(defaultValue);
+        
+        const optionExpiries = [...new Set(
+            options.filter(o => o.symboll === selectedSymbol)
+                .map(o => o.expiry_date)
+        )].sort((a, b) => new Date(a.split('-').reverse().join('-')) - new Date(b.split('-').reverse().join('-')));
+
+        
+        const futureExpiries = [...new Set(
+            futures.filter(f => f.symboll === selectedSymbol)
+                .map(f => f.expiry_date)
+        )].sort((a, b) => new Date(a.split('-').reverse().join('-')) - new Date(b.split('-').reverse().join('-')));
+
+        const optionExpirySelect = $('#modalOptionExpirySelect');
+        const futureExpirySelect = $('#modalFutureExpirySelect');
+        
+        optionExpirySelect.empty().append('<option value="">--Select--</option>');
+        optionExpiries.forEach(date => {
+            optionExpirySelect.append(`<option value="${date}">${date}</option>`);
+        });
+
+        futureExpirySelect.empty().append('<option value="">--Select--</option>');
+        futureExpiries.forEach(date => {
+            futureExpirySelect.append(`<option value="${date}">${date}</option>`);
+        });
+    }
+
+function applyStrategySettings() {
+    const config = tableConfigs[activeTableIndex];
+    config.exchange = $('#modalExchangeSelect').val();
+    config.strategy = $('#modalStrategySelect').val();
+    config.symbol = $('#modalSymbolSelect').val();
+    config.optionExpiry = $('#modalOptionExpirySelect').val();
+    config.futureExpiry = $('#modalFutureExpirySelect').val();
+    config.strikeInterval = $('#modalStrikeInterval').val();
+    config.gap = $('#modalGap').val();
+    config.noPrtFolio = $('#modalNoPrtFolio').val();
+    config.ratio1 = $('#modalRatio1').val();
+    config.ratio2 = $('#modalRatio2').val();
+    config.itmFilterCE = $('#modalItmFilterCE').val() || 3;
+    config.itmFilterPE = $('#modalItmFilterPE').val() || 3;
+    config.strategyLegType = $('#modalStrategyLegType').val() || "1331";
+    config.strikeMode = $('input[name="strikeMode"]:checked').val();
+
+    // Store all strike inputs based on mode
+    if (config.strikeMode === 'custom') {
+        config.nearestStrike = $('#nearestStrikeInput').val();
+        config.nearestStrikeCE = $('#nearestStrikeInputCE').val();
+        config.nearestStrikePE = $('#nearestStrikeInputPE').val();
+    } else {
+        config.nearestStrike = null;
+        config.nearestStrikeCE = null;
+        config.nearestStrikePE = null;
+    }
+
+    showLoadingIndicator(config.id);
+    applyStrategyForTable(activeTableIndex, false);
+    closeAllModals();
+}
+  
+function showLoadingIndicator(tableId) {
+        $(`#loading-${tableId}`).show();
+    }
+
+function hideLoadingIndicator(tableId) {
+        $(`#loading-${tableId}`).hide();
+    }
+
+function updateLastUpdateTime(tableId) {
+        const now = new Date();
+        const timeString = now.toLocaleTimeString();
+        
+    }
+
+function filterButterflyOptions(data, ceNearestStrike, peNearestStrike, itmFilterCE, itmFilterPE, noPortfolio) {
+    const ceNearest = parseFloat(ceNearestStrike);
+    const peNearest = parseFloat(peNearestStrike);
+    const ceItmCount = parseInt(itmFilterCE) || 3;
+    const peItmCount = parseInt(itmFilterPE) || 3;
+    const noPrtFolio = parseInt(noPortfolio) || 3;
+
+    const ceData = data.filter(item => item.type === 'CE');
+    const peData = data.filter(item => item.type === 'PE');
+
+    // Sort CE and PE by strike
+    ceData.sort((a, b) => parseFloat(a.l2) - parseFloat(b.l2));
+    peData.sort((a, b) => parseFloat(b.l2) - parseFloat(a.l2)); // descending for PE
+
+    // ---- CE Filtering ----
+    const ceItmOptions = ceData
+        .filter(ce => parseFloat(ce.l2) < ceNearest)
+        .sort((a, b) => parseFloat(b.l2) - parseFloat(a.l2))
+        .slice(0, ceItmCount);
+
+    const ceOtmOptions = ceData
+        .filter(ce => parseFloat(ce.l2) >= ceNearest)
+        .sort((a, b) => parseFloat(a.l2) - parseFloat(b.l2))
+        .slice(0, noPrtFolio + 1);
+
+    const ceFiltered = [...ceItmOptions, ...ceOtmOptions];
+
+    // ---- PE Filtering ----
+    const peItmOptions = peData
+        .filter(pe => parseFloat(pe.l2) > peNearest)
+        .sort((a, b) => parseFloat(a.l2) - parseFloat(b.l2))
+        .slice(0, peItmCount);
+
+    const peOtmOptions = peData
+        .filter(pe => parseFloat(pe.l2) <= peNearest)
+        .sort((a, b) => parseFloat(b.l2) - parseFloat(a.l2))
+        .slice(0, noPrtFolio + 1);
+
+    const peFiltered = [...peItmOptions, ...peOtmOptions];
+
+    return [...ceFiltered, ...peFiltered];
+}
+
+function renderTableResults(tableIndex, response) {
+    const config = tableConfigs[tableIndex];
+    const tableId = config.id;
+    const resultsContainer = $(`#resultsContainer-${tableId}`);
+    
+    hideLoadingIndicator(tableId);
+    updateLastUpdateTime(tableId);
+    resultsContainer.empty();
+
+    // Store the response data in config for access by updateTableTitle
+    config.data = response;
+    
+    // Extract LTP and nearest_strike from response (handle both array and object formats)
+    let ltp = null;
+    let nearestStrike = null;
+    
+    if (Array.isArray(response) && response.length > 0) {
+        ltp = response[0].LTP || response.LTP;
+        nearestStrike = response[0].nearest_strike || response.nearest_strike;
+    } else if (response) {
+        ltp = response.LTP;
+        nearestStrike = response.nearest_strike;
+        // For ratio strategy, check if nearest_strike is in the main response object
+        if (!nearestStrike && response.results && response.results.length > 0) {
+            nearestStrike = response.results[0].nearest_strike;
+        }
+    }
+    
+    // Convert nearestStrike to string for consistent comparison
+    if (nearestStrike !== null && nearestStrike !== undefined) {
+        nearestStrike = nearestStrike.toString();
+    }
+    
+    // Store LTP and nearest_strike in config data
+    if (!config.data) config.data = {};
+    config.data.LTP = ltp;
+    config.data.nearest_strike = nearestStrike;
+    
+    // Update the table title to show LTP
+    updateTableTitle(tableIndex);
+
+    if (Array.isArray(response)) {
+        const strategy = response[0]?.strategy?.toLowerCase();
+
+   if (strategy === 'butterfly') {
+        const itmFilterCE = config.itmFilterCE || 3;
+        const itmFilterPE = config.itmFilterPE || 3;
+        const noPrtFolio = config.noPrtFolio || 3;  // ✅ Add this line
+
+        // ✅ Pass noPrtFolio to the updated filter function
+    const ceNearestStrike = response.find(r => r.type === 'CE')?.nearest_strike || nearestStrike;
+    const peNearestStrike = response.find(r => r.type === 'PE')?.nearest_strike || nearestStrike;
+
+    const filteredData = filterButterflyOptions(response, ceNearestStrike, peNearestStrike, itmFilterCE, itmFilterPE, noPrtFolio);
+
+            const ceData = filteredData.filter(item => item.type === 'CE');
+        const peData = filteredData.filter(item => item.type === 'PE');
+
+        // Sort data for safety
+        ceData.sort((a, b) => parseFloat(a.l2) - parseFloat(b.l2));
+        peData.sort((a, b) => parseFloat(a.l2) - parseFloat(b.l2));
+
+        // Create 7-strike range centered at nearestStrike
+        const gap = Number(config.strikeInterval) || 50;
+        // console.log(`🧾 Using gap: ${gap}`);
+                
+        const nearest = parseFloat(nearestStrike);
+        // console.log(`🎯 Nearest Strike: ${nearest}`);
+        const noPortfolio = Number(config.noPrtFolio) || 3;  // use modal input value
+        const rangeLimit = noPortfolio + 2; // add some buffer to match backend logic
+        const strikeRange = [];
+
+        for (let i = -rangeLimit; i <= rangeLimit; i++) {
+            strikeRange.push((nearest + i * gap).toString());
+        }
+
+        // Find minimum CE+PE LTP sum
+        let minSum = Infinity;
+
+        strikeRange.forEach(strike => {
+            const ce = ceData.find(item => item.l2.toString() === strike);
+            const pe = peData.find(item => item.l2.toString() === strike);
+
+            if (ce && pe) {
+                const ceLTP = parseFloat(ce.l2_ltp || 0);
+                const peLTP = parseFloat(pe.l2_ltp || 0);
+                const totalLTP = ceLTP + peLTP;
+
+                if (totalLTP < minSum) {
+                    minSum = totalLTP;
+                }
+            }
+        });
+
+        // Store only the minimum LTP sum
+        config.data.strikeLtpSum = isFinite(minSum) ? minSum.toFixed(2) : null;
+
+
+        let tableHtml = `
+            <table border='1' style='width: 100%; text-align: center; border-collapse: collapse;'>
+                <tr>
+                    <th colspan='3' style='background-color: #ffe8e8; padding: 8px;'>PE Data</th>
+                    <th colspan='3' style='background-color: #e8f5e8; padding: 8px;'>CE Data</th>
+                </tr>
+                <tr>
+                    <th style='background-color: #ffe8e8; padding: 4px;'>Long</th>
+                    <th style='background-color: #ffe8e8; padding: 4px;'>Short</th>
+                    <th style='background-color: #ffe8e8; padding: 4px;'>Strike</th>
+                    <th style='background-color: #e8f5e8; padding: 4px;'>Strike</th>
+                    <th style='background-color: #e8f5e8; padding: 4px;'>Long</th>
+                    <th style='background-color: #e8f5e8; padding: 4px;'>Short</th>
+                </tr>
+        `;
+
+    const maxRows = Math.max(ceData.length, peData.length);
+    for (let i = 0; i < maxRows; i++) {
+        const ceItem = ceData[i];
+        const peItem = peData[i];
+        const peStrike = peItem?.l2?.toString() || '';
+        const ceStrike = ceItem?.l2?.toString() || '';
+        const highlightPE = peStrike === peNearestStrike.toString();
+        const highlightCE = ceStrike === ceNearestStrike.toString();
+
+        tableHtml += `<tr>`;
+
+        // PE columns with color coding
+        if (peItem) {
+            const peLong = Number(peItem.long_value);
+            const peShort = Number(peItem.short_value);
+            const peLongColor = peLong >= 0 ? 'green' : 'red';
+            const peShortColor = peShort >= 0 ? 'green' : 'red';
+            
+            tableHtml += `<td style='background-color: #fff8f8; padding: 4px; color: ${peLongColor}; font-weight: bold;'>${peLong.toFixed(2)}</td>`;
+            tableHtml += `<td style='background-color: #fff8f8; padding: 4px; color: ${peShortColor}; font-weight: bold;'>${peShort.toFixed(2)}</td>`;
+            tableHtml += `<td style='padding: 4px; font-weight: bold; background-color: ${highlightPE ? "#ffff99" : "#f9f9f9"};'>${peStrike}</td>`;
+        } else {
+            tableHtml += `<td style='padding: 6px;'>-</td><td style='padding: 6px;'>-</td><td style='padding: 6px;'>-</td>`;
+        }
+
+        // CE columns with color coding
+        if (ceItem) {
+            const ceLong = Number(ceItem.long_value);
+            const ceShort = Number(ceItem.short_value);
+            const ceLongColor = ceLong >= 0 ? 'green' : 'red';
+            const ceShortColor = ceShort >= 0 ? 'green' : 'red';
+            
+            tableHtml += `<td style='padding: 4px; font-weight: bold; background-color: ${highlightCE ? "#ffff99" : "#f9f9f9"};'>${ceStrike}</td>`;
+            tableHtml += `<td style='background-color: #f8fff8; padding: 4px; color: ${ceLongColor}; font-weight: bold;'>${ceLong.toFixed(2)}</td>`;
+            tableHtml += `<td style='background-color: #f8fff8; padding: 4px; color: ${ceShortColor}; font-weight: bold;'>${ceShort.toFixed(2)}</td>`;
+        } else {
+            tableHtml += `<td style='padding: 6px;'>-</td><td style='padding: 6px;'>-</td><td style='padding: 6px;'>-</td>`;
+        }
+
+        tableHtml += `</tr>`;
+    }
+
+
+        tableHtml += `</table>`;
+        resultsContainer.append(tableHtml);
+    }
+    
+    else if (strategy === 'pulse_butterfly') {
+    const itmFilterCE = config.itmFilterCE || 3;
+    const itmFilterPE = config.itmFilterPE || 3;
+    const noPrtFolio = config.noPrtFolio || 3;  // ✅ Add this line
+
+    // ✅ Pass noPrtFolio to the updated filter function
+const ceNearestStrike = response.find(r => r.type === 'CE')?.nearest_strike || nearestStrike;
+const peNearestStrike = response.find(r => r.type === 'PE')?.nearest_strike || nearestStrike;
+
+const filteredData = filterButterflyOptions(response, ceNearestStrike, peNearestStrike, itmFilterCE, itmFilterPE, noPrtFolio);
+
+    const ceData = filteredData.filter(item => item.type === 'CE');
+    const peData = filteredData.filter(item => item.type === 'PE');
+
+    ceData.sort((a, b) => parseFloat(a.l2) - parseFloat(b.l2));
+    peData.sort((a, b) => parseFloat(a.l2) - parseFloat(b.l2));
+
+    const gap = Number(config.strikeInterval) || 50;
+    const nearest = parseFloat(nearestStrike);
+    const strikeRange = [];
+    for (let i = -3; i <= 3; i++) {
+        strikeRange.push((nearest + i * gap).toString());
+    }
+
+    let minSum = Infinity;
+
+    strikeRange.forEach(strike => {
+        const ce = ceData.find(item => item.l2.toString() === strike);
+        const pe = peData.find(item => item.l2.toString() === strike);
+
+        if (ce && pe) {
+            const ceLTP = parseFloat(ce.l2_ltp || 0);
+            const peLTP = parseFloat(pe.l2_ltp || 0);
+            const totalLTP = ceLTP + peLTP;
+
+            if (totalLTP < minSum) {
+                minSum = totalLTP;
+            }
+        }
+    });
+
+    config.data.strikeLtpSum = isFinite(minSum) ? minSum.toFixed(2) : null;
+
+    let tableHtml = `
+        <table border='1' style='width: 100%; text-align: center; border-collapse: collapse;'>
+            <tr>
+                <th colspan='3' style='background-color: #ffe8e8; padding: 8px;'>PE Data</th>
+                <th colspan='3' style='background-color: #e8f5e8; padding: 8px;'>CE Data</th>
+            </tr>
+            <tr>
+                <th style='background-color: #ffe8e8; padding: 4px;'>Long</th>
+                <th style='background-color: #ffe8e8; padding: 4px;'>Short</th>
+                <th style='background-color: #ffe8e8; padding: 4px;'>Strike</th>
+                <th style='background-color: #e8f5e8; padding: 4px;'>Strike</th>
+                <th style='background-color: #e8f5e8; padding: 4px;'>Long</th>
+                <th style='background-color: #e8f5e8; padding: 4px;'>Short</th>
+            </tr>
+    `;
+
+    const maxRows = Math.max(ceData.length, peData.length);
+    for (let i = 0; i < maxRows; i++) {
+        const ceItem = ceData[i];
+        const peItem = peData[i];
+        const peStrike = peItem?.l2?.toString() || '';
+        const ceStrike = ceItem?.l2?.toString() || '';
+        const highlightPE = peStrike === peNearestStrike.toString();
+        const highlightCE = ceStrike === ceNearestStrike.toString();
+
+        tableHtml += `<tr>`;
+
+        // PE columns with color coding
+        if (peItem) {
+            const peLong = Number(peItem.long_value);
+            const peShort = Number(peItem.short_value);
+            const peLongColor = peLong >= 0 ? 'green' : 'red';
+            const peShortColor = peShort >= 0 ? 'green' : 'red';
+            
+            tableHtml += `<td style='background-color: #fff8f8; padding: 4px; color: ${peLongColor}; font-weight: bold;'>${peLong.toFixed(2)}</td>`;
+            tableHtml += `<td style='background-color: #fff8f8; padding: 4px; color: ${peShortColor}; font-weight: bold;'>${peShort.toFixed(2)}</td>`;
+            tableHtml += `<td style='padding: 4px; font-weight: bold; background-color: ${highlightPE ? "#ffff99" : "#f9f9f9"};'>${peStrike}</td>`;
+        } else {
+            tableHtml += `<td style='padding: 6px;'>-</td><td style='padding: 6px;'>-</td><td style='padding: 6px;'>-</td>`;
+        }
+
+        // CE columns with color coding
+        if (ceItem) {
+            const ceLong = Number(ceItem.long_value);
+            const ceShort = Number(ceItem.short_value);
+            const ceLongColor = ceLong >= 0 ? 'green' : 'red';
+            const ceShortColor = ceShort >= 0 ? 'green' : 'red';
+            
+            tableHtml += `<td style='padding: 4px; font-weight: bold; background-color: ${highlightCE ? "#ffff99" : "#f9f9f9"};'>${ceStrike}</td>`;
+            tableHtml += `<td style='background-color: #f8fff8; padding: 4px; color: ${ceLongColor}; font-weight: bold;'>${ceLong.toFixed(2)}</td>`;
+            tableHtml += `<td style='background-color: #f8fff8; padding: 4px; color: ${ceShortColor}; font-weight: bold;'>${ceShort.toFixed(2)}</td>`;
+        } else {
+            tableHtml += `<td style='padding: 6px;'>-</td><td style='padding: 6px;'>-</td><td style='padding: 6px;'>-</td>`;
+        }
+
+        tableHtml += `</tr>`;
+    }
+
+
+
+    tableHtml += `</table>`;
+    resultsContainer.append(tableHtml);
+}
+
+    else if (strategy === 'synthetic' || strategy === 'jelly') {
+
+       
+       
+
+       const gap = Number(config.strikeInterval) || 50;
+        const nearest = parseFloat(nearestStrike);
+
+        // Generate 7 strike values: 3 before, nearest, 3 after
+        const strikeRange = [];
+        for (let i = -3; i <= 3; i++) {
+            strikeRange.push(nearest + i * gap);
+        }
+
+        let minSum = Infinity;
+
+        strikeRange.forEach(strike => {
+            const strikeRow = response.find(row => Number(row.strike) === Number(strike));
+            if (strikeRow && strikeRow.ce_ltp !== undefined && strikeRow.pe_ltp !== undefined) {
+                const ceLtp = parseFloat(strikeRow.ce_ltp || 0);
+                const peLtp = parseFloat(strikeRow.pe_ltp || 0);
+                const totalLtp = ceLtp + peLtp;
+
+                if (totalLtp < minSum) {
+                    minSum = totalLtp;
+                }
+            }
+        });
+
+        // Store only the minimum sum from the 7-strike range
+        config.data.strikeLtpSum = isFinite(minSum) ? minSum.toFixed(2) : null;
+
+
+            let tableHtml = `
+                <table border='1' style='width: 100%; text-align: center; border-collapse: collapse;'>
+                   <tr>
+                    <th style="background-color: #007bff; color: white; padding: 10px; text-align: center;">Strike</th>
+                    <th style="background-color: #007bff; color: white; padding: 10px; text-align: center;">Con</th>
+                    <th style="background-color: #007bff; color: white; padding: 10px; text-align: center;">Rev</th>
+                </tr>
+            `;
+            
+            response.forEach(row => {
+                const strike = row.strike || '-';
+                const conversion = row.conversion || '-';
+                const reversal = row.reversal || '-';
+                
+                // Convert strike to string for consistent comparison
+                const strikeStr = strike.toString();
+                
+                tableHtml += `
+                    <tr>
+                        <td style="padding: 6px; text-align: center; font-weight: bold; background-color: ${strikeStr === nearestStrike ? '#ffff99' : '#f9f9f9'};">${strike}</td>
+                        <td style="padding: 6px; text-align: center; color: ${conversion >= 0 ? 'green' : 'red'};">${conversion}</td>
+                        <td style="padding: 6px; text-align: center; color: ${reversal >= 0 ? 'green' : 'red'};">${reversal}</td>
+                    </tr>
+                `;
+            });
+            
+            tableHtml += '</table>';
+            resultsContainer.append(tableHtml);
+        } else {
+            // Fallback for other array-based strategies
+            resultsContainer.append("<table border='1' style='border-collapse: collapse; width: 100%;'><tr><th style='padding: 4px;'>Strike</th><th style='padding: 8px;'>Conversion</th><th style='padding: 8px;'>Reversal</th></tr>");
+            response.forEach(row => {
+                const strikeStr = row.strike ? row.strike.toString() : '';
+                resultsContainer.append(
+                    `<tr${strikeStr === nearestStrike ? ' style="background-color: #ffff99;"' : ''}><td style='padding: 6px;'>${row.strike || ''}</td><td style='padding: 6px;'>${row.conversion || ''}</td><td style='padding: 6px;'>${row.reversal || ''}</td></tr>`
+                );
+            });
+            resultsContainer.append("</table>");
+        }
+    }
+    else if (response.strategy?.toLowerCase() === 'ratio') {
+        // Ratio strategy with nearest_strike highlighting
+        const ceResults = response.results.filter(res => res.type === 'CE' || res.l1.toString().includes('CE'));
+        const peResults = response.results.filter(res => res.type === 'PE' || res.l1.toString().includes('PE'));
+
+        const nearest = parseFloat(nearestStrike);
+        const gap = Number(config.strikeInterval) || 50;
+        console.log("hiii",gap)
+
+        // Generate 7-strike range: 3 before, 3 after
+        const strikeRange = [];
+        for (let i = -3; i <= 3; i++) {
+            strikeRange.push(Math.round(nearest + i * gap));  // rounding to avoid float mismatch
+        }
+
+        let minSum = Infinity;
+
+        strikeRange.forEach(strike => {
+            const ceMatch = ceResults.find(row => Number(row.l1) === strike);
+            const peMatch = peResults.find(row => Number(row.l1) === strike);
+
+            if (ceMatch && peMatch) {
+                const ceLtp = parseFloat(ceMatch.l1_ltp || 0);
+                const peLtp = parseFloat(peMatch.l1_ltp || 0);
+                const totalLtp = ceLtp + peLtp;
+
+                console.log(`[Ratio] Checking strike ${strike} → CE: ${ceLtp}, PE: ${peLtp}, Sum: ${totalLtp}`);
+
+                if (totalLtp < minSum) {
+                    minSum = totalLtp;
+                }
+            } else {
+                console.log(`[Ratio] ❌ Missing CE or PE data for strike ${strike}`);
+            }
+        });
+
+        config.data.strikeLtpSum = isFinite(minSum) ? minSum.toFixed(2) : null;
+
+        if (ceResults.length > 0 || peResults.length > 0) {
+            let tableHtml = `
+                <table border='1' style='width: 100%; text-align: center; border-collapse: collapse;'>
+                    <tr>
+                        <th colspan='2' style='background-color: #ffe8e8; padding: 8px;'>PE Data</th>
+                        <th rowspan='2' style='background-color: #f0f0f0; vertical-align: middle; padding: 8px;'>Strike</th>
+                        <th colspan='2' style='background-color: #e8f5e8; padding: 8px;'>CE Data</th>
+                    </tr>
+                    <tr>
+                        <th style='background-color: #ffe8e8; padding: 8px;'>Buy Value</th>
+                        <th style='background-color: #ffe8e8; padding: 8px;'>Sell Value</th>
+                        <th style='background-color: #e8f5e8; padding: 8px;'>Buy Value</th>
+                        <th style='background-color: #e8f5e8; padding: 8px;'>Sell Value</th>
+                    </tr>
+            `;
+
+ const maxRows = Math.max(ceResults.length, peResults.length);
+    for (let i = 0; i < maxRows; i++) {
+        const ceRes = ceResults[i];
+        const peRes = peResults[i];
+        const strike = ceRes?.l1 || peRes?.l1 || '';
+        
+        const strikeStr = strike.toString();
+        
+        tableHtml += `<tr${strikeStr === nearestStrike ? ' style="background-color: #ffff99;"' : ''}>`;
+        
+        // PE columns with color coding
+        if (peRes) {
+            const peBuy = Number(peRes.buy_value);
+            const peSell = Number(peRes.sell_value);
+            const peBuyColor = peBuy >= 0 ? 'green' : 'red';
+            const peSellColor = peSell >= 0 ? 'green' : 'red';
+            
+            tableHtml += `<td style='background-color: #fff8f8; padding: 6px; color: ${peBuyColor}; font-weight: bold;'>${peBuy.toFixed(2)}</td>`;
+            tableHtml += `<td style='background-color: #fff8f8; padding: 6px; color: ${peSellColor}; font-weight: bold;'>${peSell.toFixed(2)}</td>`;
+        } else {
+            tableHtml += '<td style="background-color: #fff8f8; padding: 6px;">-</td><td style="background-color: #fff8f8; padding: 6px;">-</td>';
+        }
+        
+        tableHtml += `<td style='background-color: #f9f9f9; font-weight: bold; padding: 6px; background-color: ${strikeStr === nearestStrike ? '#ffff99' : '#f9f9f9'};'>${strike}</td>`;
+        
+        // CE columns with color coding
+        if (ceRes) {
+            const ceBuy = Number(ceRes.buy_value);
+            const ceSell = Number(ceRes.sell_value);
+            const ceBuyColor = ceBuy >= 0 ? 'green' : 'red';
+            const ceSellColor = ceSell >= 0 ? 'green' : 'red';
+            
+            tableHtml += `<td style='background-color: #f8fff8; padding: 6px; color: ${ceBuyColor}; font-weight: bold;'>${ceBuy.toFixed(2)}</td>`;
+            tableHtml += `<td style='background-color: #f8fff8; padding: 6px; color: ${ceSellColor}; font-weight: bold;'>${ceSell.toFixed(2)}</td>`;
+        } else {
+            tableHtml += '<td style="background-color: #f8fff8; padding: 6px;">-</td><td style="background-color: #f8fff8; padding: 6px;">-</td>';
+        }
+        
+        tableHtml += '</tr>';
+    }
+            
+            tableHtml += '</table>';
+            resultsContainer.append(tableHtml);
+        } else {
+            resultsContainer.append("<table border='1' style='border-collapse: collapse; width: 100%;'><tr><th style='padding: 8px;'>L1</th><th style='padding: 8px;'>Buy Value</th><th style='padding: 8px;'>Sell Value</th></tr>");
+            response.results.forEach(res => {
+                const strikeStr = res.l1 ? res.l1.toString() : '';
+                resultsContainer.append(
+                    `<tr${strikeStr === nearestStrike ? ' style="background-color: #ffff99;"' : ''}><td style='padding: 6px;'>${res.l1}</td><td style='padding: 6px;'>${res.buy_value}</td><td style='padding: 6px;'>${res.sell_value}</td></tr>`
+                );
+            });
+            resultsContainer.append("</table>");
+        }
+    } 
+    else {
+        resultsContainer.html('<p>No data to display or unrecognized strategy.</p>');
+    }
+}
+
+function updateTableTitle(tableIndex) {
+    const config = tableConfigs[tableIndex];
+    const tableContainer = $(`#table-container-${config.id}`);
+    const symbolInfoSpan = tableContainer.find('.table-symbol-info');
+    const strategiesUsingGap = ['Ratio', 'Butterfly', 'Pulse_Butterfly'];
+    const strategyMap = {
+        'butterfly': 'Bfly',
+        'ratio': 'Rto',
+        'synthetic': 'Syn',
+        'jelly': 'Jly',
+        'pulse_butterfly': 'pulse'
+    };
+    // Use server timestamp (format: "14:53:10")
+    let nowTime;
+    if (config.data?.server_timestamp) {
+        nowTime = config.data.server_timestamp; // Server already provides time in "14:53:10" format
+    } else if (config.data?.timestamp) {
+        nowTime = config.data.timestamp; // Alternative field name
+    } else if (config.data?.server_time) {
+        nowTime = config.data.server_time; // Alternative field name
+    } else if (config.data?.time) {
+        nowTime = config.data.time; // Alternative field name
+    } else {
+        // If no server timestamp available, use system time as fallback
+        nowTime = new Date().toLocaleTimeString('en-GB');
+        console.warn('No server timestamp found, using system time');
+    }
+    
+    if (config.strategy && config.symbol) {
+        const strategyKey = config.strategy.toLowerCase();
+        let line1 = strategyMap[strategyKey] || config.strategy;
+        const exchangeShort = config.exchange === 'Bybit' ? 'BB' : 'DX';
+            line1 = `<span style="background-color: #ffd700; color: black; padding: 2px 4px; border-radius: 3px; font-size: 0.9em;">${exchangeShort}</span>&nbsp;&nbsp;${line1}`;
+            
+        
+        // Add Gap if strategy uses it
+        if (strategiesUsingGap.includes(config.strategy) && config.gap) {
+            line1 += `&nbsp;&nbsp;${config.gap}`;
+        }
+        
+        // ✅ Add Strategy Leg Type if present
+        if (strategyKey === 'pulse_butterfly' && config.strategyLegType) {
+            line1 += `&nbsp;&nbsp;<span style="color: #888;">[${config.strategyLegType}]</span>`;
+        }
+        
+        if (!config.lastValues) config.lastValues = {};
+        let ltpChanged = false;
+        let stdlChanged = false;
+        let tableDataChanged = false; // ✅ New flag for table data changes
+        
+        // Check LTP changes
+        if (config.data?.LTP !== undefined) {
+            const currentLTP = config.data.LTP;
+            if (currentLTP !== config.lastValues.LTP) {
+                ltpChanged = true;
+                config.lastValues.LTP = currentLTP;
+            }
+        }
+        
+        // Check Strike LTP Sum changes
+        const validStrategies = ['butterfly', 'jelly', 'synthetic', 'ratio', 'pulse_butterfly'];
+        if (validStrategies.includes(strategyKey) && config.data?.strikeLtpSum !== undefined) {
+            const currentStdl = config.data.strikeLtpSum;
+            if (currentStdl !== config.lastValues.strikeLtpSum) {
+                stdlChanged = true;
+                config.lastValues.strikeLtpSum = currentStdl;
+            }
+        }
+        
+        // ✅ NEW: Check for table data changes based on strategy
+        if (config.data && Array.isArray(config.data)) {
+            // For butterfly and pulse_butterfly strategies
+            if (strategyKey === 'butterfly' || strategyKey === 'pulse_butterfly') {
+                const currentTableData = config.data.map(item => ({
+                    strike: item.l2,
+                    type: item.type,
+                    long_value: item.long_value,
+                    short_value: item.short_value
+                }));
+                
+                const lastTableData = config.lastValues.butterflyTableData;
+                if (!lastTableData || JSON.stringify(currentTableData) !== JSON.stringify(lastTableData)) {
+                    tableDataChanged = true;
+                    config.lastValues.butterflyTableData = currentTableData;
+                }
+            }
+            
+            // For synthetic and jelly strategies
+            else if (strategyKey === 'synthetic' || strategyKey === 'jelly') {
+                const currentTableData = config.data.map(item => ({
+                    strike: item.strike,
+                    conversion: item.conversion,
+                    reversal: item.reversal
+                }));
+                
+                const lastTableData = config.lastValues.syntheticTableData;
+                if (!lastTableData || JSON.stringify(currentTableData) !== JSON.stringify(lastTableData)) {
+                    tableDataChanged = true;
+                    config.lastValues.syntheticTableData = currentTableData;
+                }
+            }
+        }
+        
+        // For ratio strategy (has different data structure)
+        else if (strategyKey === 'ratio' && config.data?.results) {
+            const currentTableData = config.data.results.map(item => ({
+                l1: item.l1,
+                type: item.type,
+                buy_value: item.buy_value,
+                sell_value: item.sell_value
+            }));
+            
+            const lastTableData = config.lastValues.ratioTableData;
+            if (!lastTableData || JSON.stringify(currentTableData) !== JSON.stringify(lastTableData)) {
+                tableDataChanged = true;
+                config.lastValues.ratioTableData = currentTableData;
+            }
+        }
+        
+        // ✅ Update timestamp when any values change (LTP, Strike LTP Sum, or Table Data)
+        if (ltpChanged || stdlChanged || tableDataChanged) {
+            config.lastValues.timestamp = nowTime;
+        }
+        
+        // Build line1 with LTP
+        if (config.lastValues.LTP !== undefined) {
+            line1 += `&nbsp;&nbsp;<span style="background-color: rgb(159, 213, 231); color: black; padding: 2px 6px; border-radius: 4px;">${config.lastValues.LTP.toFixed(2)}</span>`;
+        }
+        
+        // Add strike LTP sum for valid strategies
+        const showStrikeLtpStrategies = ['butterfly', 'jelly', 'synthetic', 'ratio', 'pulse_butterfly'];
+        if (showStrikeLtpStrategies.includes(strategyKey) && config.lastValues.strikeLtpSum !== undefined) {
+            line1 += `&nbsp;&nbsp;<span style="background-color: rgb(150, 177, 181); color: black; padding: 2px 6px; border-radius: 4px;">${config.lastValues.strikeLtpSum}</span>`;
+        }
+        
+        // ✅ ADD TIMESTAMP TO LINE1
+        if (config.lastValues.timestamp) {
+            line1 += `&nbsp;&nbsp;<span style="background-color: rgb(220, 220, 220); color: black; padding: 2px 6px; border-radius: 4px; font-size: 0.9em;">${config.lastValues.timestamp}</span>`;
+        }
+        
+        let line2 = config.symbol;
+        if (config.optionExpiry) {
+            const formattedOptionExpiry = formatShortDate(config.optionExpiry);
+            line2 += `&nbsp;&nbsp;&nbsp;${formattedOptionExpiry} (O)`;
+        }
+        if (config.futureExpiry) {
+            const formattedFutureExpiry = formatShortDate(config.futureExpiry);
+            line2 += `&nbsp;&nbsp;&nbsp;${formattedFutureExpiry} (F)`;
+        }
+        
+        const titleText = `${line1}<br>${line2}`;
+        symbolInfoSpan.html(titleText);
+    } else {
+        symbolInfoSpan.text('Configure Strategy');
+    }
+}
+
+function formatShortDate(dateStr) {
+    // Converts '26-Jun-2025' → '26-Jun-25'
+    if (!dateStr || typeof dateStr !== 'string') return dateStr;
+
+    const parts = dateStr.split('-'); // ['26', 'Jun', '2025']
+    if (parts.length === 3) {
+        const day = parts[0];
+        const month = parts[1];
+        const year = parts[2].slice(-2); // Get last 2 digits
+        return `${day}-${month}-${year}`;
+    }
+    return dateStr;
+}
+
+function openTableSettingsModal(tableIndex) {
+    activeTableIndex = tableIndex;
+    const config = tableConfigs[tableIndex];
+
+    // Populate other fields
+    $('#modalExchangeSelect').val(config.exchange || 'Delta');
+    $('#modalStrategySelect').val(config.strategy).trigger('change');
+    $('#modalSymbolSelect').val(config.symbol).trigger('change');
+    $('#modalOptionExpirySelect').val(config.optionExpiry);
+    $('#modalFutureExpirySelect').val(config.futureExpiry);
+    $('#modalStrikeInterval').val(config.strikeInterval);
+    $('#modalGap').val(config.gap);
+    $('#modalNoPrtFolio').val(config.noPrtFolio);
+    $('#modalRatio1').val(config.ratio1);
+    $('#modalRatio2').val(config.ratio2);
+    $('#modalItmFilterCE').val(config.itmFilterCE || 3);
+    $('#modalItmFilterPE').val(config.itmFilterPE || 3);
+    $('#modalStrategyLegType').val(config.strategyLegType || '1331');
+
+    // Handle strike mode (default to 'auto' if not set)
+    if (config.strikeMode === 'custom') {
+        $('#strikeModeCustom').prop('checked', true);
+    } else {
+        $('#strikeModeAuto').prop('checked', true);
+    }
+
+    // Trigger change to apply visibility
+    $('input[name="strikeMode"]:checked').trigger('change');
+
+    $('#strategyControlsModal').show();
+}
+  
+function applyTableSettings() {
+        closeAllModals();
+    }
+
+function removeTable(tableId) {
+        const tableIndex = tableConfigs.findIndex(config => config.id === tableId);
+        
+        $(`#table-container-${tableId}`).remove();
+        
+        if (tableIndex !== -1) {
+            tableConfigs.splice(tableIndex, 1);
+        }
+        
+        updateTableIndices();
+    }
+
+function updateTableIndices() {
+        tableConfigs.forEach((config, index) => {
+            config.tableIndex = index;
+            const tableContainer = $(`#table-container-${config.id}`);
+            tableContainer.find('.table-settings-btn').attr('data-table-index', index);
+        });
+    }
+
+function refreshAllTables(silent = false) {
+        // Removed the isUpdating check to allow forced updates
+        
+        const validTables = tableConfigs.filter(config => config.strategy && config.symbol);
+        
+        if (validTables.length === 0) {
+            return;
+        }
+        
+        
+        // Set isUpdating to true at the start
+        isUpdating = true;
+        let completedUpdates = 0;
+        
+        validTables.forEach((config) => {
+            const tableIndex = tableConfigs.findIndex(c => c.id === config.id);
+            if (tableIndex !== -1) {
+                applyStrategyForTable(tableIndex, true, () => {
+                    completedUpdates++;
+                    // console.log(`Completed update ${completedUpdates}/${validTables.length}`);
+                    if (completedUpdates >= validTables.length) {
+                        isUpdating = false;
+                        // console.log('All table refreshes completed');
+                    }
+                });
+            }
+        });
+    }
+function applyStrategyForTable(tableIndex, isAutoRefresh = false, callback = null) {
+    const config = tableConfigs[tableIndex];
+    const tableId = config.id;
+
+    if (config.isLoading) {
+        if (callback) callback();
+        return;
+    }
+
+    config.isLoading = true;
+
+    if (!isAutoRefresh) {
+        showLoadingIndicator(tableId);
+    }
+
+    const payload = {
+        exchange: config.exchange || 'Delta',
+        strategy: config.strategy,
+        symbol: config.symbol,
+        option_expiry: config.optionExpiry,
+        future_expiry: config.futureExpiry,
+        strike_interval: config.strikeInterval,
+        gap: config.gap,
+        no_prt_folio: config.noPrtFolio,
+        ratio1: config.strategy === 'Ratio' ? config.ratio1 : null,
+        ratio2: config.strategy === 'Ratio' ? config.ratio2 : null,
+        itm_filter_ce: config.strategy === 'Butterfly' || config.strategy === 'Pulse_Butterfly' ? config.itmFilterCE : null,
+        itm_filter_pe: config.strategy === 'Butterfly' || config.strategy === 'Pulse_Butterfly' ? config.itmFilterPE : null,
+        strategy_leg_type: config.strategy === 'Pulse_Butterfly' ? config.strategyLegType : null,
+        strike_mode: config.strikeMode,
+        nearest_strike: config.strikeMode === 'custom' ? config.nearestStrike : null,
+        nearest_strike_ce: config.strikeMode === 'custom' ? config.nearestStrikeCE : null,
+        nearest_strike_pe: config.strikeMode === 'custom' ? config.nearestStrikePE : null
+    };
+
+    $.ajax({
+        url: '/api/apply-option-strategy',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(payload),
+        success: function (response) {
+            config.data = response;
+            config.isLoading = false;
+            renderTableResults(tableIndex, response);
+            updateTableTitle(tableIndex);
+            if (callback) callback();
+        },
+        error: function () {
+            config.isLoading = false;
+            hideLoadingIndicator(tableId);
+            $(`#resultsContainer-${tableId}`).html('<p style="color:red;">Failed to apply strategy.</p>');
+            if (callback) callback();
+        }
+    });
+}
+
+
+function setupSavedConfigsDropdown(storageType = 'local') {
+    const dropdown = $('#loadConfigSelect');
+    dropdown.html('<option value="">-- Select Saved Configuration --</option>');
+    
+    if (storageType === 'local') {
+        const savedConfigurations = JSON.parse(localStorage.getItem('tableConfigurations') || '{}');
+        for (const configName in savedConfigurations) {
+            dropdown.append(`<option value="${configName}">${configName} (Local)</option>`);
+        }
+    } else {
+        $.get('/api/configurations').done(configs => {
+            for (const configName in configs) {
+                dropdown.append(`<option value="${configName}">${configName} (Server)</option>`);
+            }
+        }).fail(() => alert('Failed to load server configurations'));
+    }
+}
+function saveCurrentConfiguration() {
+    const configName = prompt('Enter a name for this configuration:');
+    if (!configName) return;
+    
+    const storageType = $('#storageTypeSelect').val();
+    const configData = JSON.parse(JSON.stringify(tableConfigs));
+    
+    if (storageType === 'local') {
+        const savedConfigurations = JSON.parse(localStorage.getItem('tableConfigurations') || '{}');
+        savedConfigurations[configName] = configData;
+        localStorage.setItem('tableConfigurations', JSON.stringify(savedConfigurations));
+        setupSavedConfigsDropdown('local');
+    } else {
+        $.ajax({
+            url: '/api/configurations',
+            type: 'POST',
+            contentType: 'application/json', // Explicitly set Content-Type
+            data: JSON.stringify({ name: configName, config: configData }), // Send as JSON
+            success: () => {
+                setupSavedConfigsDropdown('server');
+                alert('Configuration saved to server!');
+            },
+            error: (xhr) => {
+                console.error('Failed to save configuration:', xhr.responseText);
+                alert(`Failed to save configuration to server: ${xhr.responseText}`);
+            }
+        });
+    }
+}
+function loadSelectedConfiguration() {
+    const configName = $('#loadConfigSelect').val();
+    const storageType = $('#storageTypeSelect').val();
+    if (!configName) return;
+    
+    if (tableConfigs.length > 0) {
+        if (!confirm('Loading a saved configuration will replace your current tables. Continue?')) {
+            $('#loadConfigSelect').val('');
+            return;
+        }
+    }
+    
+    clearAllTables();
+    
+    if (storageType === 'local') {
+        const savedConfigurations = JSON.parse(localStorage.getItem('tableConfigurations') || '{}');
+        const selectedConfig = savedConfigurations[configName];
+        if (!selectedConfig) return;
+        
+        tableConfigs = JSON.parse(JSON.stringify(selectedConfig));
+        tableCounter = Math.max(...tableConfigs.map(config => config.id), 0) + 1;
+        
+        tableConfigs.forEach((config, index) => {
+            config.tableIndex = index;
+            config.isLoading = false;
+            createTableElement(index, config.id);
+            
+            if (config.data && config.data.length > 0) {
+                renderTableResults(index, config.data);
+            }
+            updateTableTitle(index);
+        });
+    } else {
+        $.get(`/api/configurations/${configName}`).done(selectedConfig => {
+            tableConfigs = JSON.parse(JSON.stringify(selectedConfig));
+            tableCounter = Math.max(...tableConfigs.map(config => config.id), 0) + 1;
+            
+            tableConfigs.forEach((config, index) => {
+                config.tableIndex = index;
+                config.isLoading = false;
+                createTableElement(index, config.id);
+                
+                if (config.data && config.data.length > 0) {
+                    renderTableResults(index, config.data);
+                }
+                updateTableTitle(index);
+            });
+        }).fail(() => alert('Failed to load configuration from server'));
+    }
+}
+
+function deleteSelectedConfiguration() {
+    const configName = $('#loadConfigSelect').val();
+    const storageType = $('#storageTypeSelect').val();
+    if (!configName) {
+        alert('Please select a configuration to delete');
+        return;
+    }
+    
+    if (confirm(`Are you sure you want to delete the configuration "${configName}"?`)) {
+        if (storageType === 'local') {
+            const savedConfigurations = JSON.parse(localStorage.getItem('tableConfigurations') || '{}');
+            delete savedConfigurations[configName];
+            localStorage.setItem('tableConfigurations', JSON.stringify(savedConfigurations));
+            setupSavedConfigsDropdown('local');
+            alert(`Configuration "${configName}" deleted successfully!`);
+        } else {
+            $.ajax({
+                url: `/api/configurations/${configName}`,
+                type: 'DELETE'
+            }).done(() => {
+                setupSavedConfigsDropdown('server');
+                alert(`Configuration "${configName}" deleted successfully!`);
+            }).fail(() => alert('Failed to delete configuration from server'));
+        }
+        $('#loadConfigSelect').val('');
+    }
+}
+
+function clearAllTables() {
+    $('#tables-wrapper').empty();
+    tableConfigs = [];
+}
+
+// Initialize dropdown and handle storage type change
+$(document).ready(() => {
+    setupSavedConfigsDropdown();
+    $('#storageTypeSelect').change(() => {
+        setupSavedConfigsDropdown($('#storageTypeSelect').val());
+    });
+});
+function closeAllModals() {
+        $('.modal').hide();
+    }
+
+    // Clean up on page unload
+    $(window).on('beforeunload', function() {
+        if (globalRefreshInterval) {
+            clearInterval(globalRefreshInterval);
+        }
+    });
+
+    fetchSymbolDefaults().then(() => {
+        initApp();  // ✅ Ensure app initialization happens after fetching
+    });
+});
+</script>
+
+</body>
+</html>
