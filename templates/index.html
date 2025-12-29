@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Options Strategy Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            height: 100vh;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        /* Header */
+        .header {
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid #334155;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .settings-btn {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3);
+        }
+
+        .settings-btn:hover {
+            background: #2563eb;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(59, 130, 246, 0.4);
+        }
+
+        .settings-icon {
+            width: 20px;
+            height: 20px;
+        }
+
+        /* Modal Overlay */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(5px);
+            z-index: 1000;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Modal */
+        .modal {
+            background: #1e293b;
+            border-radius: 16px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            animation: slideUp 0.3s ease;
+            border: 1px solid #334155;
+        }
+
+        .modal-header {
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(51, 65, 85, 0.3);
+        }
+
+        .modal-header h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .close-btn {
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            cursor: pointer;
+            padding: 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+
+        .close-btn:hover {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        .modal-body {
+            padding: 2rem;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .form-row-2 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .form-row-full {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-group label {
+            margin-bottom: 0.5rem;
+            color: #cbd5e1;
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        .form-group select,
+        .form-group input {
+            width: 100%;
+            padding: 0.75rem;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+
+        .form-group select:focus,
+        .form-group input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .form-group select {
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23cbd5e1'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.75rem center;
+            background-size: 1.5rem;
+            padding-right: 2.5rem;
+        }
+
+        .modal-footer {
+            padding: 1.5rem 2rem;
+            border-top: 1px solid #334155;
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+            background: rgba(51, 65, 85, 0.3);
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .btn-cancel {
+            background: #334155;
+            color: #cbd5e1;
+        }
+
+        .btn-cancel:hover {
+            background: #475569;
+        }
+
+        .btn-save {
+            background: #3b82f6;
+            color: white;
+            box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3);
+        }
+
+        .btn-save:hover {
+            background: #2563eb;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(59, 130, 246, 0.4);
+        }
+
+        /* Content Area */
+        .content {
+            height: calc(100vh - 80px);
+            overflow: auto;
+            padding: 1rem;
+        }
+
+        /* Options Table */
+        .table-container {
+            background: rgba(30, 41, 59, 0.6);
+            border: 1px solid #334155;
+            border-radius: 16px;
+            overflow: hidden;
+            height: 100%;
+        }
+
+        .table-wrapper {
+            overflow: auto;
+            height: 100%;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: rgba(51, 65, 85, 0.3);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        th {
+            padding: 0.75rem;
+            text-align: center;
+            font-weight: 600;
+            color: #cbd5e1;
+            border-bottom: 1px solid #334155;
+            font-size: 0.85rem;
+            white-space: nowrap;
+        }
+
+        td {
+            padding: 0.6rem;
+            border-bottom: 1px solid #334155;
+            text-align: center;
+            font-size: 0.85rem;
+        }
+
+        tbody tr:hover {
+            background: rgba(59, 130, 246, 0.1);
+        }
+
+        .ltp-column {
+            background: rgba(59, 130, 246, 0.15);
+            font-weight: 600;
+            color: #60a5fa;
+        }
+
+        .strike-column {
+            background: rgba(251, 191, 36, 0.1);
+            font-weight: 700;
+            color: #fbbf24;
+            font-size: 0.9rem;
+        }
+
+        .buy-positive {
+            color: #10b981;
+            font-weight: 500;
+        }
+
+        .buy-negative {
+            color: #ef4444;
+            font-weight: 500;
+        }
+
+        .sell-positive {
+            color: #10b981;
+            font-weight: 500;
+        }
+
+        .sell-negative {
+            color: #ef4444;
+            font-weight: 500;
+        }
+
+        .strike-highlight {
+            background: rgba(59, 130, 246, 0.2);
+        }
+
+        .ratio-input {
+            width: 70px;
+            padding: 0.4rem;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 4px;
+            color: #3b82f6;
+            font-size: 0.9rem;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .ratio-input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: #94a3b8;
+        }
+
+        .error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid #ef4444;
+            padding: 1rem;
+            border-radius: 8px;
+            color: #ef4444;
+            margin: 1rem 0;
+            text-align: center;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .modal::-webkit-scrollbar,
+        .table-wrapper::-webkit-scrollbar,
+        .content::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        .modal::-webkit-scrollbar-track,
+        .table-wrapper::-webkit-scrollbar-track,
+        .content::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+
+        .modal::-webkit-scrollbar-thumb,
+        .table-wrapper::-webkit-scrollbar-thumb,
+        .content::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 4px;
+        }
+
+        .modal::-webkit-scrollbar-thumb:hover,
+        .table-wrapper::-webkit-scrollbar-thumb:hover,
+        .content::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <h1 id="headerTitle">Options Strategy Dashboard</h1>
+        <button class="settings-btn" onclick="openModal()">
+            <svg class="settings-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+            </svg>
+            Settings
+        </button>
+    </div>
+
+    <!-- Content Area -->
+    <div class="content">
+        <!-- Options Table -->
+        <div class="table-container" id="tableContainer" style="display: none;">
+            <div class="table-wrapper">
+                <table id="optionsTable">
+                    <thead id="optionsTableHead">
+                        <tr>
+                            <td colspan="20" class="loading">Configure settings to load data</td>
+                        </tr>
+                    </thead>
+                    <tbody id="optionsTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="modalOverlay" onclick="closeModalOnOverlay(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2>Strategy Settings</h2>
+                <button class="close-btn" onclick="closeModal()">
+                    <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="modal-body">
+                <div id="errorMessage" class="error" style="display: none;"></div>
+                
+                <form id="strategyForm">
+                    <!-- Row 1: Strategy, Symbol, Expiry -->
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="strategy">Strategy:</label>
+                            <select id="strategy" name="strategy">
+                                <option value="">--Select--</option>
+                                <option value="butterfly">Butterfly</option>
+                                <option value="ratio">Ratio</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="symbol">Symbol:</label>
+                            <select id="symbol" name="symbol" onchange="loadExpiry()">
+                                <option value="">--Select--</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="optionExpiry">Expiry:</label>
+                            <select id="optionExpiry" name="optionExpiry">
+                                <option value="">--Select--</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Row 2: No. Portfolio, No. of Columns, Strike Interval -->
+                    <div class="form-row-2">
+                        <div class="form-group">
+                            <label for="noPortfolio">No. Portfolio:</label>
+                            <input type="number" id="noPortfolio" name="noPortfolio" placeholder="10" value="10" min="1">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="noOfColumns">No. of Columns:</label>
+                            <input type="number" id="noOfColumns" name="noOfColumns" placeholder="7" value="7" min="1">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="strikeInterval">Strike Interval:</label>
+                            <input type="number" id="strikeInterval" name="strikeInterval" placeholder="200" value="200" min="200">
+                        </div>
+                    </div>
+
+                    <!-- Row 3: Base Ratio (Full Width) -->
+                    <div class="form-row-full">
+                        <div class="form-group">
+                            <label for="baseRatio" id="baseRatioLabel">Base Ratio (1:X):</label>
+                            <input type="number" id="baseRatio" name="baseRatio" placeholder="Enter ratio (e.g., 2 for 1:2)" value="2" min="1" step="1">
+                        </div>
+                    </div>
+
+                    <!-- Row 4: Base Gap (Full Width) -->
+                    <div class="form-row-full">
+                        <div class="form-group">
+                            <label for="baseGap">Base Gap:</label>
+                            <input type="number" id="baseGap" name="baseGap" placeholder="100" value="200" min="200" step="200">
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-cancel" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-save" onclick="fetchOptionsData()">Load Data</button>
+            </div>
+        </div>
+    </div>
+
+
+
+
+<script>
+    // Global variables
+let currentData = null;
+let currentStrategy = 'ratio';
+let noOfColumns = 5;
+let ceRatios = [];
+let ceGaps = [];
+let peRatios = [];
+let peGaps = [];
+// Separate variables for Sell column
+let ceSellRatio = { ratio1: 1, ratio2: 2 };
+let ceSellGap = 200;
+let peSellRatio = { ratio1: 1, ratio2: 2 };
+let peSellGap = 200;
+let ceITM = 2; // ITM for CE
+let peITM = 2; // ITM for PE
+let refreshInterval = null;
+let isInputFocused = false;
+let lastUpdateTime = null;
+let previousBuyValues = {};
+
+// Load symbols on page load
+window.addEventListener('DOMContentLoaded', loadSymbols);
+
+// Update ratio label when strategy changes
+document.addEventListener('DOMContentLoaded', function() {
+    const strategySelect = document.getElementById('strategy');
+    strategySelect.addEventListener('change', function() {
+        const label = document.getElementById('baseRatioLabel');
+        if (this.value === 'butterfly') {
+            label.textContent = 'Base Ratio (1:X:X-1):';
+        } else {
+            label.textContent = 'Base Ratio (1:X):';
+        }
+    });
+});
+
+function openModal() {
+    document.getElementById('modalOverlay').classList.add('active');
+}
+
+function closeModal() {
+    document.getElementById('modalOverlay').classList.remove('active');
+}
+
+function closeModalOnOverlay(event) {
+    if (event.target === event.currentTarget) {
+        closeModal();
+    }
+}
+
+async function loadSymbols() {
+    try {
+        const response = await fetch('/api/symbols');
+        const data = await response.json();
+        
+        const symbolSelect = document.getElementById('symbol');
+        symbolSelect.innerHTML = '<option value="">--Select--</option>';
+        
+        data.symbols.forEach(symbol => {
+            const option = document.createElement('option');
+            option.value = symbol;
+            option.textContent = symbol;
+            symbolSelect.appendChild(option);
+        });
+    } catch (error) {
+        showError('Failed to load symbols: ' + error.message);
+    }
+}
+
+async function loadExpiry() {
+    const symbol = document.getElementById('symbol').value;
+    const expirySelect = document.getElementById('optionExpiry');
+    
+    if (!symbol) {
+        expirySelect.innerHTML = '<option value="">--Select Symbol First--</option>';
+        return;
+    }
+    
+    expirySelect.innerHTML = '<option value="">Loading...</option>';
+    
+    try {
+        const response = await fetch(`/api/expiry?symbol=${symbol}`);
+        const data = await response.json();
+        
+        expirySelect.innerHTML = '<option value="">--Select--</option>';
+        
+        data.expiry_dates.forEach(expiry => {
+            const option = document.createElement('option');
+            option.value = expiry;
+            option.textContent = expiry;
+            expirySelect.appendChild(option);
+        });
+    } catch (error) {
+        showError('Failed to load expiry dates: ' + error.message);
+        expirySelect.innerHTML = '<option value="">Error loading</option>';
+    }
+}
+
+async function fetchOptionsData() {
+    const strategy = document.getElementById('strategy').value;
+    const symbol = document.getElementById('symbol').value;
+    const expiry = document.getElementById('optionExpiry').value;
+    const noPortfolio = parseInt(document.getElementById('noPortfolio').value) || 10;
+    const strikeInterval = parseInt(document.getElementById('strikeInterval').value) || 1;
+    noOfColumns = parseInt(document.getElementById('noOfColumns').value) || 7;
+    const baseGap = parseInt(document.getElementById('baseGap').value) || 200;
+    
+    if (!strategy) {
+        showError('Please select a Strategy');
+        return;
+    }
+    
+    if (!symbol || !expiry) {
+        showError('Please select Symbol and Expiry');
+        return;
+    }
+    
+    currentStrategy = strategy;
+    closeModal();
+    
+    const baseRatio2 = parseInt(document.getElementById('baseRatio').value) || 2;
+    
+    ceRatios = [];
+    ceGaps = [];
+    peRatios = [];
+    peGaps = [];
+    previousBuyValues = {};
+    
+    for (let i = 0; i < noOfColumns; i++) {
+        ceRatios.push({ ratio1: 1, ratio2: baseRatio2 });
+        ceGaps.push(baseGap);
+        peRatios.push({ ratio1: 1, ratio2: baseRatio2 });
+        peGaps.push(baseGap);
+    }
+    
+    // Initialize Sell column values
+    ceSellRatio = { ratio1: 1, ratio2: baseRatio2 };
+    ceSellGap = baseGap;
+    peSellRatio = { ratio1: 1, ratio2: baseRatio2 };
+    peSellGap = baseGap;
+    
+    document.getElementById('optionsTableHead').innerHTML = '<tr><td colspan="50" class="loading">Loading options data...</td></tr>';
+    document.getElementById('optionsTableBody').innerHTML = '';
+    
+    try {
+        const response = await fetch('/api/options-data', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                symbol: symbol,
+                expiry: expiry,
+                no_portfolio: noPortfolio,
+                strike_interval: strikeInterval
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(result.error || 'Failed to fetch data');
+        }
+        
+        currentData = result;
+        displayOptionsData(result);
+        
+        if (refreshInterval) {
+            clearInterval(refreshInterval);
+        }
+        refreshInterval = setInterval(() => refreshData(symbol, expiry, noPortfolio, strikeInterval), 1000);
+        
+    } catch (error) {
+        document.getElementById('optionsTableHead').innerHTML = 
+            `<tr><td colspan="50" class="error">Error: ${error.message}</td></tr>`;
+    }
+}
+
+async function refreshData(symbol, expiry, noPortfolio, strikeInterval) {
+    if (isInputFocused) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/options-data', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                symbol: symbol,
+                expiry: expiry,
+                no_portfolio: noPortfolio,
+                strike_interval: strikeInterval
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            currentData = result;
+            displayOptionsData(result);
+        }
+    } catch (error) {
+        console.error('Refresh error:', error);
+    }
+}
+
+function displayOptionsData(result) {
+    // Format strategy name
+    const strategyName = currentStrategy === 'butterfly' ? 'Bfly' : currentStrategy.toUpperCase();
+    
+    // Format expiry date
+    const expiryDate = new Date(result.expiry);
+    const formattedExpiry = expiryDate.toLocaleDateString('en-GB', { 
+        day: '2-digit', 
+        month: 'short', 
+        year: 'numeric' 
+    });
+    
+    // Format time
+    const timeString = lastUpdateTime ? ` | ${lastUpdateTime}` : '';
+    
+    document.getElementById('headerTitle').textContent = 
+        `${result.symbol} | ${strategyName} | Expiry: ${formattedExpiry} | Spot: ${result.spot_price.toFixed(3)}${timeString}`;
+    
+    document.getElementById('tableContainer').style.display = 'block';
+    
+    // Get settings from the modal
+    const noPortfolio = parseInt(document.getElementById('noPortfolio').value) || 10;
+    const strikeInterval = parseInt(document.getElementById('strikeInterval').value) || 200;
+    
+    // Find nearest strike from ALL data (not filtered)
+    const spotPrice = result.spot_price;
+    const nearestStrike = result.nearest_strike;
+    const nearestIndex = result.data.findIndex(row => row.strike_price === nearestStrike);
+    
+    // Filter strikes based on strike interval starting from nearest strike
+    // Include strikes at: nearest, nearest±interval, nearest±2*interval, etc.
+    const filteredData = result.data.filter(row => {
+        const diff = row.strike_price - nearestStrike;
+        return diff % strikeInterval === 0;
+    });
+    
+    // Find the index of nearest strike in filtered data
+    const actualNearestIndex = filteredData.findIndex(row => row.strike_price === nearestStrike);
+    
+    // CE: Show ceITM strikes BEFORE nearest + noPortfolio strikes AFTER nearest (including nearest)
+    const ceStartIndex = Math.max(0, actualNearestIndex - ceITM);
+    const ceEndIndex = Math.min(filteredData.length, actualNearestIndex + noPortfolio + 1);
+    const ceData = filteredData.slice(ceStartIndex, ceEndIndex);
+    
+    // PE: Show noPortfolio strikes BEFORE nearest (including nearest) + peITM strikes AFTER nearest
+    const peStartIndex = Math.max(0, actualNearestIndex - noPortfolio);
+    const peEndIndex = Math.min(filteredData.length, actualNearestIndex + peITM + 1);
+    const peData = filteredData.slice(peStartIndex, peEndIndex);
+    
+    const thead = document.getElementById('optionsTableHead');
+    let headerHTML = '';
+    
+    // Row 1: Main Headers
+    headerHTML += '<tr>';
+    headerHTML += '<th rowspan="3" class="strike-column">CE<br>STRIKE</th>';
+    headerHTML += `<th rowspan="3" class="ltp-column"><input type="number" class="ratio-input" style="width: 50px;" value="${ceITM}" min="0" step="1" onchange="updateITM(this.value, 'ce')" onfocus="handleInputFocus()" onblur="handleInputBlur()"><br>LTP</th>`;
+    
+    for (let i = 0; i < noOfColumns; i++) {
+        headerHTML += `<th style="background: rgba(16, 185, 129, 0.1);">Buy</th>`;
+    }
+    headerHTML += `<th style="background: rgba(239, 68, 68, 0.1);">Sell</th>`;
+    
+    headerHTML += '<th rowspan="3" class="strike-column">PE<br>STRIKE</th>';
+    headerHTML += `<th rowspan="3" class="ltp-column"><input type="number" class="ratio-input" style="width: 50px;" value="${peITM}" min="0" step="1" onchange="updateITM(this.value, 'pe')" onfocus="handleInputFocus()" onblur="handleInputBlur()"><br>LTP</th>`;
+    
+    for (let i = 0; i < noOfColumns; i++) {
+        headerHTML += `<th style="background: rgba(16, 185, 129, 0.1);">Buy</th>`;
+    }
+    headerHTML += `<th style="background: rgba(239, 68, 68, 0.1);">Sell</th>`;
+    headerHTML += '</tr>';
+    
+    // Row 2: Ratio inputs
+    headerHTML += '<tr>';
+    
+    // CE Ratio inputs - Buy columns
+    for (let i = 0; i < noOfColumns; i++) {
+        if (currentStrategy === 'butterfly') {
+            headerHTML += `<td style="font-size: 0.75rem; padding: 4px;">1: <input type="number" class="ratio-input" style="width: 60px;" value="${ceRatios[i].ratio2}" min="1" step="1" onchange="updateRatio(${i}, this.value, 'ce')" onfocus="handleInputFocus()" onblur="handleInputBlur()"> : ${ceRatios[i].ratio2 - 1}</td>`;
+        } else {
+            headerHTML += `<td style="font-size: 0.75rem; padding: 4px;">1: <input type="number" class="ratio-input" style="width: 60px;" value="${ceRatios[i].ratio2}" min="1" step="1" onchange="updateRatio(${i}, this.value, 'ce')" onfocus="handleInputFocus()" onblur="handleInputBlur()"></td>`;
+        }
+    }
+    // CE Sell column - separate ratio input
+    if (currentStrategy === 'butterfly') {
+        headerHTML += `<td style="font-size: 0.75rem; padding: 4px;">1: <input type="number" class="ratio-input" style="width: 60px;" value="${ceSellRatio.ratio2}" min="1" step="1" onchange="updateSellRatio(this.value, 'ce')" onfocus="handleInputFocus()" onblur="handleInputBlur()"> : ${ceSellRatio.ratio2 - 1}</td>`;
+    } else {
+        headerHTML += `<td style="font-size: 0.75rem; padding: 4px;">1: <input type="number" class="ratio-input" style="width: 60px;" value="${ceSellRatio.ratio2}" min="1" step="1" onchange="updateSellRatio(this.value, 'ce')" onfocus="handleInputFocus()" onblur="handleInputBlur()"></td>`;
+    }
+    
+    // PE Ratio inputs - Buy columns
+    for (let i = 0; i < noOfColumns; i++) {
+        if (currentStrategy === 'butterfly') {
+            headerHTML += `<td style="font-size: 0.75rem; padding: 4px;">1: <input type="number" class="ratio-input" style="width: 60px;" value="${peRatios[i].ratio2}" min="1" step="1" onchange="updateRatio(${i}, this.value, 'pe')" onfocus="handleInputFocus()" onblur="handleInputBlur()"> : ${peRatios[i].ratio2 - 1}</td>`;
+        } else {
+            headerHTML += `<td style="font-size: 0.75rem; padding: 4px;">1: <input type="number" class="ratio-input" style="width: 60px;" value="${peRatios[i].ratio2}" min="1" step="1" onchange="updateRatio(${i}, this.value, 'pe')" onfocus="handleInputFocus()" onblur="handleInputBlur()"></td>`;
+        }
+    }
+    // PE Sell column - separate ratio input
+    if (currentStrategy === 'butterfly') {
+        headerHTML += `<td style="font-size: 0.75rem; padding: 4px;">1: <input type="number" class="ratio-input" style="width: 60px;" value="${peSellRatio.ratio2}" min="1" step="1" onchange="updateSellRatio(this.value, 'pe')" onfocus="handleInputFocus()" onblur="handleInputBlur()"> : ${peSellRatio.ratio2 - 1}</td>`;
+    } else {
+        headerHTML += `<td style="font-size: 0.75rem; padding: 4px;">1: <input type="number" class="ratio-input" style="width: 60px;" value="${peSellRatio.ratio2}" min="1" step="1" onchange="updateSellRatio(this.value, 'pe')" onfocus="handleInputFocus()" onblur="handleInputBlur()"></td>`;
+    }
+    headerHTML += '</tr>';
+    
+    // Row 3: Gap inputs
+    headerHTML += '<tr>';
+    
+    // CE Gap inputs - Buy columns
+    for (let i = 0; i < noOfColumns; i++) {
+        headerHTML += `<td style="font-size: 0.75rem; padding: 4px;"><input type="number" class="ratio-input" style="width: 70px;" value="${ceGaps[i]}" min="200" step="200" onchange="updateGap(${i}, this.value, 'ce')" onfocus="handleInputFocus()" onblur="handleInputBlur()"></td>`;
+    }
+    // CE Sell column - separate gap input
+    headerHTML += `<td style="font-size: 0.75rem; padding: 4px;"><input type="number" class="ratio-input" style="width: 70px;" value="${ceSellGap}" min="200" step="200" onchange="updateSellGap(this.value, 'ce')" onfocus="handleInputFocus()" onblur="handleInputBlur()"></td>`;
+    
+    // PE Gap inputs - Buy columns
+    for (let i = 0; i < noOfColumns; i++) {
+        headerHTML += `<td style="font-size: 0.75rem; padding: 4px;"><input type="number" class="ratio-input" style="width: 70px;" value="${peGaps[i]}" min="200" step="200" onchange="updateGap(${i}, this.value, 'pe')" onfocus="handleInputFocus()" onblur="handleInputBlur()"></td>`;
+    }
+    // PE Sell column - separate gap input
+    headerHTML += `<td style="font-size: 0.75rem; padding: 4px;"><input type="number" class="ratio-input" style="width: 70px;" value="${peSellGap}" min="200" step="200" onchange="updateSellGap(this.value, 'pe')" onfocus="handleInputFocus()" onblur="handleInputBlur()"></td>`;
+    headerHTML += '</tr>';
+    
+    thead.innerHTML = headerHTML;
+    
+    // Build table body and check for value changes
+    const tbody = document.getElementById('optionsTableBody');
+    tbody.innerHTML = '';
+    
+    const maxRows = Math.max(ceData.length, peData.length);
+    let valuesChanged = false;
+    
+    for (let i = 0; i < maxRows; i++) {
+        const tr = document.createElement('tr');
+        let rowHTML = '';
+        
+        // CE side
+        if (i < ceData.length) {
+            const ceRow = ceData[i];
+            const isCENearestStrike = ceRow.strike_price === nearestStrike;
+            
+            rowHTML += `<td class="strike-column" style="${isCENearestStrike ? 'background-color: #fef08a;' : ''}">${ceRow.strike_price}</td>`;
+            
+            const ceLTP = ceRow.call ? (ceRow.call.mark_price || '-') : '-';
+            rowHTML += `<td class="ltp-column">${typeof ceLTP === 'number' ? ceLTP.toFixed(3) : ceLTP}</td>`;
+            
+            for (let colIndex = 0; colIndex < noOfColumns; colIndex++) {
+                const buyValue = calculateBuy(filteredData, filteredData.indexOf(ceRow), colIndex, 'call');
+                const key = `ce_${ceRow.strike_price}_${colIndex}`;
+                if (previousBuyValues[key] !== buyValue) {
+                    valuesChanged = true;
+                    previousBuyValues[key] = buyValue;
+                }
+                rowHTML += `<td class="${buyValue >= 0 ? 'buy-positive' : 'buy-negative'}">${buyValue !== null ? buyValue.toFixed(2) : '-'}</td>`;
+            }
+            
+            const ceSellValue = calculateSell(filteredData, filteredData.indexOf(ceRow), 'call');
+            const keySell = `ce_${ceRow.strike_price}_sell`;
+            if (previousBuyValues[keySell] !== ceSellValue) {
+                valuesChanged = true;
+                previousBuyValues[keySell] = ceSellValue;
+            }
+            rowHTML += `<td class="${ceSellValue >= 0 ? 'sell-positive' : 'sell-negative'}">${ceSellValue !== null ? ceSellValue.toFixed(2) : '-'}</td>`;
+        } else {
+            rowHTML += `<td colspan="${noOfColumns + 3}"></td>`;
+        }
+        
+        // PE side
+        if (i < peData.length) {
+            const peRow = peData[i];
+            const isPENearestStrike = peRow.strike_price === nearestStrike;
+            
+            rowHTML += `<td class="strike-column" style="${isPENearestStrike ? 'background-color: #fef08a;' : ''}">${peRow.strike_price}</td>`;
+            
+            const peLTP = peRow.put ? (peRow.put.mark_price || '-') : '-';
+            rowHTML += `<td class="ltp-column">${typeof peLTP === 'number' ? peLTP.toFixed(3) : peLTP}</td>`;
+            
+            for (let colIndex = 0; colIndex < noOfColumns; colIndex++) {
+                const buyValue = calculateBuy(filteredData, filteredData.indexOf(peRow), colIndex, 'put');
+                const key = `pe_${peRow.strike_price}_${colIndex}`;
+                if (previousBuyValues[key] !== buyValue) {
+                    valuesChanged = true;
+                    previousBuyValues[key] = buyValue;
+                }
+                rowHTML += `<td class="${buyValue >= 0 ? 'buy-positive' : 'buy-negative'}">${buyValue !== null ? buyValue.toFixed(2) : '-'}</td>`;
+            }
+            
+            const peSellValue = calculateSell(filteredData, filteredData.indexOf(peRow), 'put');
+            const keySell = `pe_${peRow.strike_price}_sell`;
+            if (previousBuyValues[keySell] !== peSellValue) {
+                valuesChanged = true;
+                previousBuyValues[keySell] = peSellValue;
+            }
+            rowHTML += `<td class="${peSellValue >= 0 ? 'sell-positive' : 'sell-negative'}">${peSellValue !== null ? peSellValue.toFixed(2) : '-'}</td>`;
+        } else {
+            rowHTML += `<td colspan="${noOfColumns + 3}"></td>`;
+        }
+        
+        tr.innerHTML = rowHTML;
+        tbody.appendChild(tr);
+    }
+    
+    // Update time only if values changed
+    if (valuesChanged) {
+        const now = new Date();
+        lastUpdateTime = now.toLocaleTimeString('en-GB', { 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            second: '2-digit' 
+        });
+        
+        // Update header with new time
+        document.getElementById('headerTitle').textContent = 
+            `${result.symbol} | ${strategyName} | Expiry: ${formattedExpiry} | Spot: ${result.spot_price.toFixed(3)} | ${lastUpdateTime}`;
+    }
+}
+
+// ============ RATIO STRATEGY CALCULATIONS ============
+function calculateRatioBuy(data, currentIndex, colIndex, type) {
+    const gap = (type === 'call') ? ceGaps[colIndex] : peGaps[colIndex];
+    const ratio = (type === 'call') ? ceRatios[colIndex] : peRatios[colIndex];
+    
+    const currentStrike = data[currentIndex].strike_price;
+    const targetStrike = currentStrike + gap;
+    
+    const l2RowIndex = data.findIndex(row => row.strike_price === targetStrike);
+    
+    if (l2RowIndex === -1) return 0;
+    
+    const currentRow = data[currentIndex];
+    const l2Row = data[l2RowIndex];
+    
+    if (type === 'call') {
+        const currentAsk = currentRow.call ? currentRow.call.best_ask : null;
+        const l2Bid = l2Row.call ? l2Row.call.best_bid : null;
+        
+        if (currentAsk === null || l2Bid === null) return 0;
+        return (l2Bid * ratio.ratio2) - (currentAsk * ratio.ratio1);
+    } else {
+        const currentAsk = currentRow.put ? currentRow.put.best_ask : null;
+        const l2Bid = l2Row.put ? l2Row.put.best_bid : null;
+        
+        if (currentAsk === null || l2Bid === null) return 0;
+        return (l2Bid * ratio.ratio2) - (currentAsk * ratio.ratio1);
+    }
+}
+
+function calculateRatioSell(data, currentIndex, type) {
+    const gap = (type === 'call') ? ceSellGap : peSellGap;
+    const ratio = (type === 'call') ? ceSellRatio : peSellRatio;
+    
+    const currentStrike = data[currentIndex].strike_price;
+    const targetStrike = currentStrike + gap;
+    
+    const l2RowIndex = data.findIndex(row => row.strike_price === targetStrike);
+    
+    if (l2RowIndex === -1) return 0;
+    
+    const currentRow = data[currentIndex];
+    const l2Row = data[l2RowIndex];
+    
+    if (type === 'call') {
+        const currentBid = currentRow.call ? currentRow.call.best_bid : null;
+        const l2Ask = l2Row.call ? l2Row.call.best_ask : null;
+        
+        if (currentBid === null || l2Ask === null) return 0;
+        return (currentBid * ratio.ratio1) - (l2Ask * ratio.ratio2);
+    } else {
+        const currentBid = currentRow.put ? currentRow.put.best_bid : null;
+        const l2Ask = l2Row.put ? l2Row.put.best_ask : null;
+        
+        if (currentBid === null || l2Ask === null) return 0;
+        return (currentBid * ratio.ratio1) - (l2Ask * ratio.ratio2);
+    }
+}
+
+// ============ BUTTERFLY STRATEGY CALCULATIONS ============
+function calculateButterflyBuy(data, currentIndex, colIndex, type) {
+    const gap = (type === 'call') ? ceGaps[colIndex] : peGaps[colIndex];
+    const ratio = (type === 'call') ? ceRatios[colIndex] : peRatios[colIndex];
+    
+    const l2 = data[currentIndex].strike_price;
+    const l1 = l2 - gap;
+    const l3 = l2 + gap;
+    
+    const l1RowIndex = data.findIndex(row => row.strike_price === l1);
+    const l2RowIndex = currentIndex;
+    const l3RowIndex = data.findIndex(row => row.strike_price === l3);
+    
+    if (l1RowIndex === -1 || l3RowIndex === -1) return null;
+    
+    const l1Row = data[l1RowIndex];
+    const l2Row = data[l2RowIndex];
+    const l3Row = data[l3RowIndex];
+    
+    const ratio3 = ratio.ratio2 - 1;
+    
+    if (type === 'call') {
+        const l1Ask = l1Row.call ? l1Row.call.best_ask : null;
+        const l2Bid = l2Row.call ? l2Row.call.best_bid : null;
+        const l3Ask = l3Row.call ? l3Row.call.best_ask : null;
+        
+        if (l1Ask === null || l2Bid === null || l3Ask === null || 
+            l1Ask === 0 || l2Bid === 0 || l3Ask === 0 ||
+            isNaN(l1Ask) || isNaN(l2Bid) || isNaN(l3Ask)) {
+            return null;
+        }
+        
+        const buyValue = (l2Bid * ratio.ratio2) - (l1Ask * ratio.ratio1 + l3Ask * ratio3);
+        return isNaN(buyValue) ? null : buyValue;
+    } else {
+        const l1Ask = l1Row.put ? l1Row.put.best_ask : null;
+        const l2Bid = l2Row.put ? l2Row.put.best_bid : null;
+        const l3Ask = l3Row.put ? l3Row.put.best_ask : null;
+        
+        if (l1Ask === null || l2Bid === null || l3Ask === null || 
+            l1Ask === 0 || l2Bid === 0 || l3Ask === 0 ||
+            isNaN(l1Ask) || isNaN(l2Bid) || isNaN(l3Ask)) {
+            return null;
+        }
+        
+        const buyValue = (l2Bid * ratio.ratio2) - (l1Ask * ratio3 + l3Ask * ratio.ratio1);
+        return isNaN(buyValue) ? null : buyValue;
+    }
+}
+
+function calculateButterflySell(data, currentIndex, type) {
+    const gap = (type === 'call') ? ceSellGap : peSellGap;
+    const ratio = (type === 'call') ? ceSellRatio : peSellRatio;
+    
+    const l2 = data[currentIndex].strike_price;
+    const l1 = l2 - gap;
+    const l3 = l2 + gap;
+    
+    const l1RowIndex = data.findIndex(row => row.strike_price === l1);
+    const l2RowIndex = currentIndex;
+    const l3RowIndex = data.findIndex(row => row.strike_price === l3);
+    
+    if (l1RowIndex === -1 || l3RowIndex === -1) return null;
+    
+    const l1Row = data[l1RowIndex];
+    const l2Row = data[l2RowIndex];
+    const l3Row = data[l3RowIndex];
+    
+    const ratio3 = ratio.ratio2 - 1;
+    
+    if (type === 'call') {
+        const l1Bid = l1Row.call ? l1Row.call.best_bid : null;
+        const l2Ask = l2Row.call ? l2Row.call.best_ask : null;
+        const l3Bid = l3Row.call ? l3Row.call.best_bid : null;
+        
+        if (l1Bid === null || l2Ask === null || l3Bid === null || 
+            l1Bid === 0 || l2Ask === 0 || l3Bid === 0 ||
+            isNaN(l1Bid) || isNaN(l2Ask) || isNaN(l3Bid)) {
+            return null;
+        }
+        
+        const sellValue = (l1Bid * ratio.ratio1 + l3Bid * ratio3) - (l2Ask * ratio.ratio2);
+        return isNaN(sellValue) ? null : sellValue;
+    } else {
+        const l1Bid = l1Row.put ? l1Row.put.best_bid : null;
+        const l2Ask = l2Row.put ? l2Row.put.best_ask : null;
+        const l3Bid = l3Row.put ? l3Row.put.best_bid : null;
+        
+        if (l1Bid === null || l2Ask === null || l3Bid === null || 
+            l1Bid === 0 || l2Ask === 0 || l3Bid === 0 ||
+            isNaN(l1Bid) || isNaN(l2Ask) || isNaN(l3Bid)) {
+            return null;
+        }
+        
+        const sellValue = (l1Bid * ratio3 + l3Bid * ratio.ratio1) - (l2Ask * ratio.ratio2);
+        return isNaN(sellValue) ? null : sellValue;
+    }
+}
+
+// ============ MAIN CALCULATION FUNCTIONS ============
+function calculateBuy(data, currentIndex, colIndex, type) {
+    if (currentStrategy === 'butterfly') {
+        return calculateButterflyBuy(data, currentIndex, colIndex, type);
+    } else {
+        return calculateRatioBuy(data, currentIndex, colIndex, type);
+    }
+}
+
+function calculateSell(data, currentIndex, type) {
+    if (currentStrategy === 'butterfly') {
+        return calculateButterflySell(data, currentIndex, type);
+    } else {
+        return calculateRatioSell(data, currentIndex, type);
+    }
+}
+
+function updateRatio(index, value, type) {
+    if (type === 'ce') {
+        ceRatios[index].ratio2 = parseInt(value);
+    } else {
+        peRatios[index].ratio2 = parseInt(value);
+    }
+    
+    if (currentData) {
+        displayOptionsData(currentData);
+    }
+}
+
+function updateSellRatio(value, type) {
+    if (type === 'ce') {
+        ceSellRatio.ratio2 = parseInt(value);
+    } else {
+        peSellRatio.ratio2 = parseInt(value);
+    }
+    
+    if (currentData) {
+        displayOptionsData(currentData);
+    }
+}
+
+function updateGap(index, value, type) {
+    if (type === 'ce') {
+        ceGaps[index] = parseInt(value);
+    } else {
+        peGaps[index] = parseInt(value);
+    }
+    
+    if (currentData) {
+        displayOptionsData(currentData);
+    }
+}
+
+function updateSellGap(value, type) {
+    if (type === 'ce') {
+        ceSellGap = parseInt(value);
+    } else {
+        peSellGap = parseInt(value);
+    }
+    
+    if (currentData) {
+        displayOptionsData(currentData);
+    }
+}
+
+function updateITM(value, type) {
+    if (type === 'ce') {
+        ceITM = parseInt(value) || 0;
+    } else {
+        peITM = parseInt(value) || 0;
+    }
+    
+    if (currentData) {
+        displayOptionsData(currentData);
+    }
+}
+
+function handleInputFocus() {
+    isInputFocused = true;
+}
+
+function handleInputBlur() {
+    setTimeout(() => {
+        isInputFocused = false;
+    }, 200);
+}
+
+function showError(message) {
+    const errorDiv = document.getElementById('errorMessage');
+    errorDiv.textContent = message;
+    errorDiv.style.display = 'block';
+    
+    setTimeout(() => {
+        errorDiv.style.display = 'none';
+    }, 5000);
+}
+
+document.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape') {
+        closeModal();
+    }
+});
+
+window.addEventListener('beforeunload', function() {
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+    }
+});
+</script>
+</body>
+</html>
