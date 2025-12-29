@@ -41,8 +41,8 @@ def generate_comprehensive_option_list():
     # Common expiries (update these based on current available dates)
     expiries = [
         "30DEC25", "31DEC25",  # End of month
-        "03JAN26", "10JAN26", "17JAN26", "24JAN26", "31JAN26",  # January
-        "28FEB26", "27MAR26", "30JUN26", "29DEC26"  # Quarterly
+        "01JAN26", "09JAN26", "16JAN26", "02JAN26", "30JAN26",  # January
+        "27FEB26", "27MAR26", "30JUN26", "29DEC26"  # Quarterly
     ]
     
     # Strike range: 60k to 120k in various increments
