@@ -1,6 +1,7 @@
 """
-Bybit WebSocket Collector - HARDCODED SYMBOLS VERSION
-Works on Railway without REST API dependency
+Bybit WebSocket Collector - AUTO-FETCH ALL BTC OPTIONS
+Automatically fetches all active BTC options from Bybit API
+Works on Railway with REST API for symbol discovery
 """
 import websocket
 import json
@@ -9,6 +10,7 @@ from mysql.connector import pooling
 import time
 import threading
 import os
+import requests
 from datetime import datetime, timezone
 from queue import Queue
 from collections import defaultdict
@@ -16,6 +18,9 @@ from collections import defaultdict
 # Bybit WebSocket endpoints
 WS_URL_LINEAR = "wss://stream.bybit.com/v5/public/linear"
 WS_URL_OPTION = "wss://stream.bybit.com/v5/public/option"
+
+# Bybit REST API endpoint
+BYBIT_API_URL = "https://api.bybit.com/v5/market/tickers"
 
 # MySQL Configuration - Using environment variables for Railway
 MYSQL_CONFIG = {
@@ -27,51 +32,6 @@ MYSQL_CONFIG = {
 }
 
 TABLE_NAME = 'bybit_data'
-
-# ✅ HARDCODED OPTION SYMBOLS - Add your specific symbols here
-OPTION_SYMBOLS = [
-    "BTC-30DEC25-89000-P-USDT",
-    "BTC-30DEC25-94000-C-USDT",
-    "BTC-30DEC25-91000-C-USDT",
-    "BTC-30DEC25-89000-C-USDT",
-    "BTC-30DEC25-88500-C-USDT",
-    "BTC-30DEC25-87000-C-USDT",
-    "BTC-30DEC25-87000-P-USDT",
-    "BTC-30DEC25-88500-P-USDT",
-    "BTC-30DEC25-85500-P-USDT",
-    "BTC-30DEC25-86000-C-USDT",
-    "BTC-30DEC25-84000-C-USDT",
-    "BTC-30DEC25-94000-P-USDT",
-    "BTC-30DEC25-90500-P-USDT",
-    "BTC-30DEC25-90000-C-USDT",
-    "BTC-30DEC25-88000-P-USDT",
-    "BTC-30DEC25-90500-C-USDT",
-    "BTC-30DEC25-81000-P-USDT",
-    "BTC-30DEC25-87500-P-USDT",
-    "BTC-30DEC25-89500-C-USDT",
-    "BTC-30DEC25-85000-P-USDT",
-    "BTC-30DEC25-85000-C-USDT",
-    "BTC-30DEC25-91000-P-USDT",
-    "BTC-30DEC25-84000-P-USDT",
-    "BTC-30DEC25-87500-C-USDT",
-    "BTC-30DEC25-83000-C-USDT",
-    "BTC-30DEC25-88000-C-USDT",
-    "BTC-30DEC25-89500-P-USDT",
-    "BTC-30DEC25-86500-C-USDT",
-    "BTC-30DEC25-83000-P-USDT",
-    "BTC-30DEC25-92000-P-USDT",
-    "BTC-30DEC25-82000-C-USDT",
-    "BTC-30DEC25-85500-C-USDT",
-    "BTC-30DEC25-82000-P-USDT",
-    "BTC-30DEC25-81000-C-USDT",
-    "BTC-30DEC25-86000-P-USDT",
-    "BTC-30DEC25-92000-C-USDT",
-    "BTC-30DEC25-90000-P-USDT",
-    "BTC-30DEC25-93000-C-USDT",
-    "BTC-30DEC25-86500-P-USDT",
-    "BTC-30DEC25-93000-P-USDT",
-    # Add more symbols as needed
-]
 
 # Queue for non-blocking DB writes
 db_queue = Queue(maxsize=10000)
@@ -89,6 +49,53 @@ connection_stats = {
 
 # Connection pool
 connection_pool = None
+
+
+def fetch_all_btc_options():
+    """Fetch ALL active BTC options from Bybit REST API"""
+    print("🔍 Fetching ALL active BTC options from Bybit API...")
+    
+    try:
+        params = {
+            'category': 'option',
+            'baseCoin': 'BTC'
+        }
+        
+        response = requests.get(BYBIT_API_URL, params=params, timeout=15)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        if data.get('retCode') == 0:
+            symbols = []
+            result_list = data.get('result', {}).get('list', [])
+            
+            for item in result_list:
+                symbol = item.get('symbol')
+                if symbol and 'BTC' in symbol:
+                    symbols.append(symbol)
+            
+            print(f"✅ Found {len(symbols)} active BTC options")
+            
+            # Display sample symbols
+            if symbols:
+                print(f"📋 Sample symbols:")
+                for sym in symbols[:5]:
+                    print(f"   - {sym}")
+                if len(symbols) > 5:
+                    print(f"   ... and {len(symbols) - 5} more")
+            
+            return symbols
+        else:
+            print(f"❌ API Error: {data.get('retMsg', 'Unknown error')}")
+            return []
+            
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Network Error fetching options: {e}")
+        return []
+    except Exception as e:
+        print(f"❌ Error fetching options: {e}")
+        return []
 
 
 def setup_database():
@@ -331,8 +338,8 @@ def process_ticker_data(data, category):
         if not symbol:
             return
         
-        # Filter: Only BTC and ETH
-        if 'BTC' not in symbol and 'ETH' not in symbol:
+        # Filter: Only BTC
+        if 'BTC' not in symbol:
             return
         
         if symbol not in symbol_data_cache:
@@ -401,7 +408,7 @@ def process_ticker_data(data, category):
             print(f"⚠️  Queue full, dropping update for {symbol}")
             return
         
-        coin = "BTC" if 'BTC' in symbol else "ETH"
+        coin = "BTC"
         count_key = f"{coin}_{contract_type}"
         symbol_count[count_key] += 1
         
@@ -460,7 +467,7 @@ def on_message_option(ws, message):
 
 
 def on_open_linear(ws):
-    """Subscribe to BTC and ETH linear/perpetual tickers"""
+    """Subscribe to BTCUSDT perpetual"""
     global last_pong, connection_stats
     last_pong = time.time()
     connection_stats['linear_last_connected'] = datetime.now().strftime("%H:%M:%S")
@@ -470,33 +477,36 @@ def on_open_linear(ws):
     
     payload = {
         "op": "subscribe",
-        "args": [
-            "tickers.BTCUSDT",
-            "tickers.ETHUSDT"
-        ]
+        "args": ["tickers.BTCUSDT"]
     }
     
     try:
         ws.send(json.dumps(payload))
-        print(f"📡 Subscribed to linear tickers (BTCUSDT, ETHUSDT)\n")
+        print(f"📡 Subscribed to BTCUSDT perpetual\n")
     except Exception as e:
         print(f"❌ Linear Subscription Error: {e}")
 
 
 def on_open_option(ws):
-    """Subscribe to hardcoded option symbols"""
+    """Subscribe to ALL BTC options fetched from API"""
     global connection_stats
     connection_stats['option_last_connected'] = datetime.now().strftime("%H:%M:%S")
     connection_stats['option_reconnects'] += 1
     
     print(f"✅ Connected to Bybit Options (reconnect #{connection_stats['option_reconnects']})")
-    print(f"📋 Using {len(OPTION_SYMBOLS)} hardcoded option symbols")
     
-    # Subscribe in batches
-    batch_size = 50
+    # Fetch ALL active BTC options
+    option_symbols = fetch_all_btc_options()
     
-    for i in range(0, len(OPTION_SYMBOLS), batch_size):
-        batch = OPTION_SYMBOLS[i:i + batch_size]
+    if not option_symbols:
+        print("⚠️  No BTC options found, will retry on next reconnect")
+        return
+    
+    # Subscribe in batches (Bybit limit is around 500-1000 per request)
+    batch_size = 100
+    
+    for i in range(0, len(option_symbols), batch_size):
+        batch = option_symbols[i:i + batch_size]
         
         payload = {
             "op": "subscribe",
@@ -505,12 +515,12 @@ def on_open_option(ws):
         
         try:
             ws.send(json.dumps(payload))
-            print(f"📡 Subscribed to {len(batch)} options (batch {i//batch_size + 1})")
-            time.sleep(0.2)
+            print(f"📡 Subscribed to {len(batch)} options (batch {i//batch_size + 1}/{(len(option_symbols)-1)//batch_size + 1})")
+            time.sleep(0.3)  # Small delay between batches
         except Exception as e:
             print(f"❌ Option Subscription Error: {e}")
     
-    print(f"✅ Total {len(OPTION_SYMBOLS)} options subscribed\n")
+    print(f"✅ Total {len(option_symbols)} BTC options subscribed\n")
 
 
 def on_error(ws, error):
