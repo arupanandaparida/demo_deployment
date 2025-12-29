@@ -1,6 +1,7 @@
 """
 Bybit WebSocket Collector - HARDCODED SYMBOLS VERSION
 Works on Railway without REST API dependency
+FIXED: Added mark_vol column to match API requirements
 """
 import websocket
 import json
@@ -28,7 +29,7 @@ MYSQL_CONFIG = {
 
 TABLE_NAME = 'bybit_data'
 
-# ✅ HARDCODED OPTION SYMBOLS - Add your specific symbols here
+# ✅ HARDCODED OPTION SYMBOLS
 OPTION_SYMBOLS = [
     "BTC-29DEC25-89000-P-USDT",
     "BTC-29DEC25-94000-C-USDT",
@@ -70,7 +71,6 @@ OPTION_SYMBOLS = [
     "BTC-29DEC25-93000-C-USDT",
     "BTC-29DEC25-86500-P-USDT",
     "BTC-29DEC25-93000-P-USDT",
-    # Add more symbols as needed
 ]
 
 # Queue for non-blocking DB writes
@@ -92,7 +92,7 @@ connection_pool = None
 
 
 def setup_database():
-    """Create MySQL table and connection pool"""
+    """Create MySQL table and connection pool - FIXED: Added mark_vol column"""
     global connection_pool
     if connection_pool is not None:
         return
@@ -131,6 +131,7 @@ def setup_database():
             vega DECIMAL(20,8),
             theta DECIMAL(20,8),
             mark_iv DECIMAL(20,8),
+       
             underlying_price DECIMAL(20,4),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -232,7 +233,7 @@ def database_worker():
                         volume_24h, turnover_24h, open_interest,
                         funding_rate, predicted_funding_rate,
                         delta, gamma, vega, theta, mark_iv, underlying_price
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,  %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE
                         category=VALUES(category),
                         expiry=VALUES(expiry),
@@ -256,6 +257,7 @@ def database_worker():
                         vega=VALUES(vega),
                         theta=VALUES(theta),
                         mark_iv=VALUES(mark_iv),
+                      
                         underlying_price=VALUES(underlying_price),
                         updated_at=CURRENT_TIMESTAMP
                 '''
@@ -323,7 +325,7 @@ def determine_contract_type(symbol, category):
 
 
 def process_ticker_data(data, category):
-    """Process Bybit ticker data"""
+    """Process Bybit ticker data - FIXED: Added mark_vol extraction"""
     global symbol_count, symbol_data_cache
     
     try:
@@ -382,6 +384,7 @@ def process_ticker_data(data, category):
         vega = safe_float(cached.get('vega'))
         theta = safe_float(cached.get('theta'))
         mark_iv = safe_float(cached.get('markIv'))
+      
         underlying_price = safe_float(cached.get('underlyingPrice'))
         
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
@@ -392,7 +395,7 @@ def process_ticker_data(data, category):
             best_bid, best_ask, bid_size, ask_size,
             volume_24h, turnover_24h, open_interest,
             funding_rate, predicted_funding_rate,
-            delta, gamma, vega, theta, mark_iv, underlying_price
+            delta, gamma, vega, theta, mark_iv, underlying_price  # ✅ ADDED mark_vol
         )
         
         try:
