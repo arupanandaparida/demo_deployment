@@ -51,6 +51,59 @@ connection_stats = {
 connection_pool = None
 
 
+def fetch_btc_options_alternative():
+    """Alternative method: fetch from instruments endpoint"""
+    print("🔄 Trying alternative endpoint (instruments-info)...")
+    
+    try:
+        url = "https://api.bybit.com/v5/market/instruments-info"
+        params = {
+            'category': 'option',
+            'baseCoin': 'BTC',
+            'limit': 1000  # Get as many as possible
+        }
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json'
+        }
+        
+        response = requests.get(url, params=params, headers=headers, timeout=15)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        if data.get('retCode') == 0:
+            symbols = []
+            result_list = data.get('result', {}).get('list', [])
+            
+            for item in result_list:
+                symbol = item.get('symbol')
+                # Check if option is active/tradable
+                status = item.get('status', '')
+                if symbol and 'BTC' in symbol and status == 'Trading':
+                    symbols.append(symbol)
+            
+            if symbols:
+                print(f"✅ Found {len(symbols)} active BTC options (via instruments)")
+                print(f"📋 Sample symbols:")
+                for sym in symbols[:5]:
+                    print(f"   - {sym}")
+                if len(symbols) > 5:
+                    print(f"   ... and {len(symbols) - 5} more")
+                return symbols
+            else:
+                print("⚠️  No active/trading BTC options found")
+                return []
+        else:
+            print(f"❌ API Error: {data.get('retMsg', 'Unknown error')}")
+            return []
+            
+    except Exception as e:
+        print(f"❌ Alternative method also failed: {e}")
+        return []
+
+
 def fetch_all_btc_options():
     """Fetch ALL active BTC options from Bybit REST API"""
     print("🔍 Fetching ALL active BTC options from Bybit API...")
@@ -61,9 +114,21 @@ def fetch_all_btc_options():
             'baseCoin': 'BTC'
         }
         
-        response = requests.get(BYBIT_API_URL, params=params, timeout=15)
-        response.raise_for_status()
+        # Add proper headers to avoid 403 errors
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+        }
         
+        response = requests.get(BYBIT_API_URL, params=params, headers=headers, timeout=15)
+        
+        # Check status before raising
+        if response.status_code == 403:
+            print("❌ API returned 403 Forbidden - trying alternative method...")
+            return fetch_btc_options_alternative()
+        
+        response.raise_for_status()
         data = response.json()
         
         if data.get('retCode') == 0:
@@ -447,9 +512,22 @@ def on_message_option(ws, message):
         data = json.loads(message)
 
         if data.get('success') is True:
-            print("✅ Option subscription confirmed")
+            topic = data.get('op', '')
+            if 'subscribe' in topic:
+                print(f"✅ Option subscription confirmed: {data.get('args', [])}")
             return
 
+        # Handle snapshot data (when we subscribe to all options)
+        if data.get('type') == 'snapshot':
+            ticker_data = data.get('data')
+            if isinstance(ticker_data, list):
+                print(f"📸 Received snapshot with {len(ticker_data)} options")
+                for ticker in ticker_data:
+                    if isinstance(ticker, dict) and 'BTC' in ticker.get('symbol', ''):
+                        process_ticker_data(ticker, 'option')
+            return
+
+        # Handle regular ticker updates
         if data.get('topic', '').startswith('tickers'):
             ticker_data = data.get('data')
             
@@ -499,7 +577,19 @@ def on_open_option(ws):
     option_symbols = fetch_all_btc_options()
     
     if not option_symbols:
-        print("⚠️  No BTC options found, will retry on next reconnect")
+        print("⚠️  No BTC options found")
+        print("💡 TIP: Using WebSocket snapshot to discover active symbols...")
+        
+        # Subscribe to the base option ticker to get snapshot
+        payload = {
+            "op": "subscribe",
+            "args": ["tickers.option"]
+        }
+        try:
+            ws.send(json.dumps(payload))
+            print("📡 Subscribed to option snapshot feed (will auto-discover BTC options)")
+        except Exception as e:
+            print(f"❌ Snapshot subscription error: {e}")
         return
     
     # Subscribe in batches (Bybit limit is around 500-1000 per request)
