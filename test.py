@@ -51,44 +51,47 @@ connection_pool = None
 
 
 def get_active_options():
-    """Fetch active BTC and ETH options from REST API"""
     options = []
-    
-    try:
-        # Get BTC options
-        print("🔍 Fetching active BTC options...")
-        url = "https://api.bybit.com/v5/market/tickers?category=option&baseCoin=BTC"
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        
-        if data.get('retCode') == 0:
-            for item in data.get('result', {}).get('list', []):
-                symbol = item.get('symbol')
-                if symbol:
-                    options.append(f"tickers.{symbol}")
-        
-        print(f"   Found {len(options)} BTC options")
-        
-        # Get ETH options
-        print("🔍 Fetching active ETH options...")
-        url = "https://api.bybit.com/v5/market/tickers?category=option&baseCoin=ETH"
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        
-        eth_count = 0
-        if data.get('retCode') == 0:
-            for item in data.get('result', {}).get('list', []):
-                symbol = item.get('symbol')
-                if symbol:
-                    options.append(f"tickers.{symbol}")
-                    eth_count += 1
-        
-        print(f"   Found {eth_count} ETH options")
-        
-    except Exception as e:
-        print(f"❌ Error fetching options: {e}")
-    
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json"
+    }
+
+    def fetch(base):
+        url = "https://api.bybit.com/v5/market/tickers"
+        params = {"category": "option", "baseCoin": base}
+
+        r = requests.get(url, params=params, headers=headers, timeout=10)
+
+        if r.status_code != 200:
+            print(f"❌ REST failed {base}: {r.status_code}")
+            return []
+
+        try:
+            data = r.json()
+        except:
+            print(f"❌ Non-JSON response for {base}")
+            return []
+
+        if data.get("retCode") != 0:
+            print(f"❌ API error {base}: {data}")
+            return []
+
+        return [
+            f"tickers.{item['symbol']}"
+            for item in data.get("result", {}).get("list", [])
+            if item.get("symbol")
+        ]
+
+    btc = fetch("BTC")
+    eth = fetch("ETH")
+
+    options.extend(btc)
+    options.extend(eth)
+
+    print(f"✅ Options loaded: BTC={len(btc)}, ETH={len(eth)}")
     return options
+
 
 
 def setup_database():
@@ -525,7 +528,7 @@ def on_open_option(ws):
     
     # Bybit allows max 2000 args per subscription for options
     # Split into chunks if needed
-    chunk_size = 500  # Conservative limit
+    chunk_size = 200  # Conservative limit
     
     for i in range(0, len(option_symbols), chunk_size):
         chunk = option_symbols[i:i + chunk_size]
