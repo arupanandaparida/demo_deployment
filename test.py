@@ -31,6 +31,8 @@ MYSQL_CONFIG = {
 }
 
 TABLE_NAME = 'bybit_data'
+MAX_OPTION_SUBS = 600   # ✅ SAFE limit for Railway
+
 
 # Queue for non-blocking DB writes
 db_queue = Queue(maxsize=10000)
@@ -471,6 +473,25 @@ def on_open_linear(ws):
         print(f"❌ Linear Subscription Error: {e}")
 
 
+def get_limited_option_symbols():
+    """Fetch option symbols and limit count for Railway safety"""
+    url = "https://api.bybit.com/v5/market/instruments-info"
+    params = {"category": "option"}
+    
+    resp = requests.get(url, params=params, timeout=10).json()
+    symbols = []
+
+    for item in resp.get("result", {}).get("list", []):
+        symbol = item.get("symbol")
+        if symbol and ("BTC" in symbol or "ETH" in symbol):
+            symbols.append(symbol)
+
+        if len(symbols) >= MAX_OPTION_SUBS:
+            break
+
+    print(f"🔍 Loaded {len(symbols)} option symbols (LIMITED)")
+    return symbols
+
 def on_open_option(ws):
     global connection_stats
     connection_stats['option_last_connected'] = datetime.now().strftime("%H:%M:%S")
@@ -478,20 +499,19 @@ def on_open_option(ws):
 
     print(f"✅ Connected to Bybit Options (reconnect #{connection_stats['option_reconnects']})")
 
-    # ✅ DIRECT wildcard subscription (NO REST)
-    payload = {
-        "op": "subscribe",
-        "args": [
-            "tickers.BTC-*",
-            "tickers.ETH-*"
-        ]
-    }
+    symbols = get_limited_option_symbols()
 
-    try:
+    # Subscribe in SAFE batches of 50
+    batch_size = 50
+    for i in range(0, len(symbols), batch_size):
+        batch = symbols[i:i + batch_size]
+        payload = {
+            "op": "subscribe",
+            "args": [f"tickers.{s}" for s in batch]
+        }
         ws.send(json.dumps(payload))
-        print("📡 Subscribed to ALL BTC & ETH Options (wildcard)\n")
-    except Exception as e:
-        print(f"❌ Option Subscription Error: {e}")
+        print(f"📡 Subscribed to {len(batch)} options")
+        time.sleep(0.2)  # VERY IMPORTANT (rate-limit protection)
 
 
 
