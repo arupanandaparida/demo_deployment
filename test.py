@@ -1,7 +1,7 @@
 """
-Bybit WebSocket Collector - HYBRID VERSION
-Tries to fetch options from API, falls back to comprehensive hardcoded list
-Works reliably on Railway with WebSocket-only mode
+Bybit WebSocket Collector - FULLY DYNAMIC VERSION
+Fetches ALL active instruments from API and subscribes to them
+No hardcoding - discovers everything available from exchange
 """
 import websocket
 import json
@@ -11,7 +11,7 @@ import time
 import threading
 import os
 import requests
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from queue import Queue
 from collections import defaultdict
 
@@ -19,58 +19,21 @@ from collections import defaultdict
 WS_URL_LINEAR = "wss://stream.bybit.com/v5/public/linear"
 WS_URL_OPTION = "wss://stream.bybit.com/v5/public/option"
 
-# Bybit REST API endpoint
-BYBIT_API_URL = "https://api.bybit.com/v5/market/tickers"
+# Bybit REST API endpoints
+BYBIT_API_BASE = "https://api.bybit.com/v5"
 
 # MySQL Configuration
 MYSQL_CONFIG = {
-    'host': os.getenv('MYSQLHOST', os.getenv('MYSQL_HOST', 'localhost')),
-    'port': int(os.getenv('MYSQLPORT', os.getenv('MYSQL_PORT', '3306'))),
-    'user': os.getenv('MYSQLUSER', os.getenv('MYSQL_USER', 'root')),
-    'password': os.getenv('MYSQLPASSWORD', os.getenv('MYSQL_PASSWORD', '')),
-    'database': os.getenv('MYSQLDATABASE', os.getenv('MYSQL_DATABASE', 'railway'))
+    'host': os.getenv('MYSQLHOST', 'localhost'),
+    'port': int(os.getenv('MYSQLPORT', '3306')),
+    'user': os.getenv('MYSQLUSER', 'root'),
+    'password': os.getenv('MYSQLPASSWORD', ''),
+    'database': os.getenv('MYSQLDATABASE', 'railway')
 }
 
 TABLE_NAME = 'bybit_data'
 
-# ✅ COMPREHENSIVE FALLBACK LIST - Generated for multiple expiries
-def generate_comprehensive_option_list():
-    """Generate comprehensive BTC option symbols for multiple expiries and strikes"""
-    symbols = []
-    
-    # Common expiries (update these based on current available dates)
-    expiries = [
-        "30DEC25", "31DEC25",  # End of month
-        "01JAN26", "09JAN26", "16JAN26", "02JAN26", "30JAN26",  # January
-        "27FEB26", "27MAR26", "30JUN26", "29DEC26"  # Quarterly
-    ]
-    
-    # Strike range: 60k to 120k in various increments
-    strikes = []
-    
-    # Fine granularity around current price (80k-100k)
-    for strike in range(80000, 100000, 500):
-        strikes.append(strike)
-    
-    # Wider range with larger increments
-    for strike in range(60000, 80000, 1000):
-        strikes.append(strike)
-    for strike in range(100000, 120000, 1000):
-        strikes.append(strike)
-    
-    # Generate all combinations
-    for expiry in expiries:
-        for strike in strikes:
-            symbols.append(f"BTC-{expiry}-{strike}-C-USDT")
-            symbols.append(f"BTC-{expiry}-{strike}-P-USDT")
-    
-    return sorted(set(symbols))
-
-
-# Generate comprehensive fallback list
-FALLBACK_OPTION_SYMBOLS = generate_comprehensive_option_list()
-
-# Queue for non-blocking DB writes
+# Global state
 db_queue = Queue(maxsize=10000)
 update_count = 0
 symbol_count = defaultdict(int)
@@ -80,66 +43,120 @@ last_pong = time.time()
 connection_stats = {
     'linear_reconnects': 0,
     'option_reconnects': 0,
-    'linear_last_connected': None,
-    'option_last_connected': None,
-    'api_fetch_attempts': 0,
-    'api_fetch_success': 0
+    'linear_symbols': 0,
+    'option_symbols': 0,
+    'api_calls': 0
 }
-
 connection_pool = None
 
 
-def fetch_all_btc_options():
-    """Try to fetch ALL active BTC options from Bybit REST API"""
+def fetch_all_instruments(category, base_coin=None):
+    """
+    Fetch ALL available instruments from Bybit API
+    category: 'linear', 'option', 'inverse', 'spot'
+    base_coin: 'BTC', 'ETH', etc. (None for all)
+    """
     global connection_stats
-    connection_stats['api_fetch_attempts'] += 1
+    connection_stats['api_calls'] += 1
     
-    print("🔍 Attempting to fetch BTC options from Bybit API...")
+    instruments = []
+    cursor = None
+    
+    print(f"🔍 Fetching {category} instruments{f' for {base_coin}' if base_coin else ''}...")
     
     try:
-        params = {
-            'category': 'option',
-            'baseCoin': 'BTC'
-        }
-        
-        # Add headers to avoid rate limiting
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        
-        response = requests.get(
-            BYBIT_API_URL, 
-            params=params, 
-            headers=headers,
-            timeout=10
-        )
-        
-        if response.status_code == 200:
+        while True:
+            params = {
+                'category': category,
+                'limit': 1000  # Max per request
+            }
+            
+            if base_coin:
+                params['baseCoin'] = base_coin
+            
+            if cursor:
+                params['cursor'] = cursor
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            
+            response = requests.get(
+                f"{BYBIT_API_BASE}/market/instruments-info",
+                params=params,
+                headers=headers,
+                timeout=15
+            )
+            
+            if response.status_code != 200:
+                print(f"⚠️  API returned status {response.status_code}")
+                break
+            
             data = response.json()
             
-            if data.get('retCode') == 0:
-                symbols = []
-                result_list = data.get('result', {}).get('list', [])
-                
-                for item in result_list:
-                    symbol = item.get('symbol')
-                    if symbol and 'BTC' in symbol:
-                        symbols.append(symbol)
-                
-                if symbols:
-                    connection_stats['api_fetch_success'] += 1
-                    print(f"✅ API SUCCESS: Found {len(symbols)} active BTC options")
-                    return symbols
-        
-        print(f"⚠️  API returned status {response.status_code}")
-        return None
+            if data.get('retCode') != 0:
+                print(f"⚠️  API error: {data.get('retMsg')}")
+                break
             
-    except requests.exceptions.RequestException as e:
-        print(f"⚠️  API request failed: {str(e)[:100]}")
-        return None
+            result = data.get('result', {})
+            items = result.get('list', [])
+            
+            for item in items:
+                symbol = item.get('symbol')
+                status = item.get('status')
+                
+                # Only include tradable/active instruments
+                if symbol and status in ['Trading', 'Active']:
+                    instruments.append(symbol)
+            
+            # Check for pagination
+            cursor = result.get('nextPageCursor')
+            if not cursor or not items:
+                break
+            
+            print(f"   Fetched {len(instruments)} so far...")
+            time.sleep(0.1)  # Rate limiting
+        
+        print(f"✅ Found {len(instruments)} active {category} instruments")
+        return instruments
+        
     except Exception as e:
-        print(f"⚠️  API error: {str(e)[:100]}")
-        return None
+        print(f"❌ Error fetching instruments: {e}")
+        return []
+
+
+def fetch_dynamic_linear_symbols():
+    """Fetch all linear perpetual symbols (USDT, USDC pairs)"""
+    symbols = []
+    
+    # Get all linear instruments
+    all_linear = fetch_all_instruments('linear')
+    
+    for symbol in all_linear:
+        # Filter for major coins if needed, or include all
+        if 'USDT' in symbol or 'USDC' in symbol:
+            symbols.append(symbol)
+    
+    return symbols
+
+
+def fetch_dynamic_option_symbols():
+    """Fetch all option symbols for major base coins"""
+    symbols = []
+    
+    # Get options for BTC
+    btc_options = fetch_all_instruments('option', 'BTC')
+    symbols.extend(btc_options)
+    
+    # Get options for ETH
+    eth_options = fetch_all_instruments('option', 'ETH')
+    symbols.extend(eth_options)
+    
+    # You can add more base coins here
+    # sol_options = fetch_all_instruments('option', 'SOL')
+    # symbols.extend(sol_options)
+    
+    return symbols
 
 
 def setup_database():
@@ -195,7 +212,7 @@ def setup_database():
     conn.commit()
     cursor.close()
     conn.close()
-    print(f"✅ Table '{TABLE_NAME}' ready in database '{MYSQL_CONFIG['database']}'\n")
+    print(f"✅ Table '{TABLE_NAME}' ready\n")
 
 
 def reset_table_if_new_day():
@@ -214,7 +231,7 @@ def reset_table_if_new_day():
     elif str(last_date) != today:
         cursor.execute(f"DELETE FROM {TABLE_NAME}")
         conn.commit()
-        print(f"🧹 Old data ({last_date}) cleared. New trading day: {today}")
+        print(f"🧹 Old data ({last_date}) cleared. New day: {today}")
     else:
         print(f"✅ Same day ({today}). Data preserved.")
 
@@ -223,7 +240,7 @@ def reset_table_if_new_day():
 
 
 def extract_expiry_from_symbol(symbol):
-    """Extract expiry date from Bybit option symbol"""
+    """Extract expiry date from option symbol"""
     try:
         if '-' in symbol:
             parts = symbol.split('-')
@@ -240,7 +257,7 @@ def extract_expiry_from_symbol(symbol):
 
 
 def has_price_changed(symbol, mark, bid, ask):
-    """Check if prices changed significantly"""
+    """Check if prices changed"""
     if mark == 0 and bid == 0 and ask == 0:
         return False
     
@@ -252,7 +269,7 @@ def has_price_changed(symbol, mark, bid, ask):
 
 
 def database_worker():
-    """Background thread for IMMEDIATE writes with small batches"""
+    """Background thread for database writes"""
     global update_count
     
     conn = connection_pool.get_connection()
@@ -262,7 +279,7 @@ def database_worker():
     batch_size = 10
     last_write = time.time()
     
-    print("🔧 Database worker started (real-time mode)\n")
+    print("🔧 Database worker started\n")
     
     while True:
         try:
@@ -285,10 +302,6 @@ def database_worker():
                         delta, gamma, vega, theta, mark_iv, underlying_price
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE
-                        category=VALUES(category),
-                        expiry=VALUES(expiry),
-                        strike_price=VALUES(strike_price),
-                        contract_type=VALUES(contract_type),
                         timestamp=VALUES(timestamp),
                         mark_price=VALUES(mark_price),
                         index_price=VALUES(index_price),
@@ -315,14 +328,14 @@ def database_worker():
                 conn.commit()
                 update_count += len(batch)
                 
-                if update_count % 50 == 0:
+                if update_count % 100 == 0:
                     print(f"💾 Updates: {update_count} | Queue: {db_queue.qsize()}")
                 
                 batch = []
                 last_write = time.time()
                 
         except mysql.connector.Error as e:
-            print(f"❌ DB Worker Error: {e}")
+            print(f"❌ DB Error: {e}")
             batch = []
             try:
                 conn.close()
@@ -331,7 +344,7 @@ def database_worker():
             conn = connection_pool.get_connection()
             cursor = conn.cursor()
         except Exception as e:
-            print(f"❌ DB Worker Error: {e}")
+            print(f"❌ Worker Error: {e}")
             batch = []
 
 
@@ -346,23 +359,22 @@ def safe_float(value, default=0.0):
 
 
 def determine_contract_type(symbol, category):
-    """Determine specific contract type"""
+    """Determine contract type"""
     if category == "option":
-        if '-C-' in symbol or symbol.endswith('-C-USDT'):
+        if '-C-' in symbol or symbol.endswith('-C'):
             return 'call_option'
-        elif '-P-' in symbol or symbol.endswith('-P-USDT'):
+        elif '-P-' in symbol or symbol.endswith('-P'):
             return 'put_option'
         else:
             parts = symbol.split('-')
             if len(parts) >= 4:
-                option_letter = parts[3]
-                if option_letter == 'C':
+                if parts[3] == 'C':
                     return 'call_option'
-                elif option_letter == 'P':
+                elif parts[3] == 'P':
                     return 'put_option'
             return 'option'
     
-    if 'PERP' in symbol.upper() or 'USDT' in symbol:
+    if 'PERP' in symbol.upper():
         return 'perpetual_future'
     
     if any(month in symbol for month in 
@@ -374,7 +386,7 @@ def determine_contract_type(symbol, category):
 
 
 def process_ticker_data(data, category):
-    """Process Bybit ticker data"""
+    """Process ticker data"""
     global symbol_count, symbol_data_cache
     
     try:
@@ -382,15 +394,10 @@ def process_ticker_data(data, category):
         if not symbol:
             return
         
-        # Filter: Only BTC
-        if 'BTC' not in symbol:
-            return
-        
         if symbol not in symbol_data_cache:
             symbol_data_cache[symbol] = {}
         
         symbol_data_cache[symbol].update({k: v for k, v in data.items() if v is not None and v != ''})
-        
         cached = symbol_data_cache[symbol]
         
         mark_price = safe_float(cached.get('markPrice'))
@@ -422,28 +429,24 @@ def process_ticker_data(data, category):
             if len(parts) >= 4:
                 strike_price = safe_float(parts[2])
         
-        index_price = safe_float(cached.get('indexPrice'))
-        volume_24h = safe_float(cached.get('volume24h'))
-        turnover_24h = safe_float(cached.get('turnover24h'))
-        open_interest = safe_float(cached.get('openInterest'))
-        funding_rate = safe_float(cached.get('fundingRate'))
-        predicted_funding_rate = safe_float(cached.get('predictedFundingRate'))
-        delta = safe_float(cached.get('delta'))
-        gamma = safe_float(cached.get('gamma'))
-        vega = safe_float(cached.get('vega'))
-        theta = safe_float(cached.get('theta'))
-        mark_iv = safe_float(cached.get('markIv'))
-        underlying_price = safe_float(cached.get('underlyingPrice'))
-        
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         
         record = (
             symbol, category, expiry, strike_price, contract_type,
-            timestamp, mark_price, index_price, last_price,
-            best_bid, best_ask, bid_size, ask_size,
-            volume_24h, turnover_24h, open_interest,
-            funding_rate, predicted_funding_rate,
-            delta, gamma, vega, theta, mark_iv, underlying_price
+            timestamp, mark_price,
+            safe_float(cached.get('indexPrice')),
+            last_price, best_bid, best_ask, bid_size, ask_size,
+            safe_float(cached.get('volume24h')),
+            safe_float(cached.get('turnover24h')),
+            safe_float(cached.get('openInterest')),
+            safe_float(cached.get('fundingRate')),
+            safe_float(cached.get('predictedFundingRate')),
+            safe_float(cached.get('delta')),
+            safe_float(cached.get('gamma')),
+            safe_float(cached.get('vega')),
+            safe_float(cached.get('theta')),
+            safe_float(cached.get('markIv')),
+            safe_float(cached.get('underlyingPrice'))
         )
         
         try:
@@ -451,23 +454,14 @@ def process_ticker_data(data, category):
         except:
             return
         
-        coin = "BTC"
-        count_key = f"{coin}_{contract_type}"
-        symbol_count[count_key] += 1
+        symbol_count[f"{category}_{contract_type}"] += 1
         
-        if symbol_count[count_key] % 20 == 0:
-            if contract_type in ['call_option', 'put_option']:
-                option_type = "CALL" if contract_type == 'call_option' else "PUT"
-                print(f"⚡ {coin} {option_type} | Strike: ${strike_price:.0f} | Mark: ${mark_price:.1f}")
-            else:
-                print(f"⚡ {coin} {contract_type.upper()} | Mark: ${mark_price:.2f} | OI: {open_interest}")
-            
     except Exception as e:
         pass
 
 
-def on_message_linear(ws, message):
-    """Handle linear/perpetual messages"""
+def on_message(ws, message, category):
+    """Generic message handler"""
     try:
         data = json.loads(message)
         
@@ -477,80 +471,31 @@ def on_message_linear(ws, message):
         if data.get('topic', '').startswith('tickers'):
             ticker = data.get('data')
             if isinstance(ticker, dict):
-                process_ticker_data(ticker, 'linear')
+                process_ticker_data(ticker, category)
                 
-    except Exception as e:
-        pass
-
-
-def on_message_option(ws, message):
-    """Handle option messages"""
-    try:
-        data = json.loads(message)
-
-        if data.get('success') is True:
-            return
-
-        if data.get('topic', '').startswith('tickers'):
-            ticker_data = data.get('data')
-            
-            if isinstance(ticker_data, dict):
-                process_ticker_data(ticker_data, 'option')
-            elif isinstance(ticker_data, list):
-                for ticker in ticker_data:
-                    if isinstance(ticker, dict):
-                        process_ticker_data(ticker, 'option')
-
     except:
         pass
 
 
 def on_open_linear(ws):
-    """Subscribe to BTCUSDT perpetual"""
-    global last_pong, connection_stats
-    last_pong = time.time()
-    connection_stats['linear_last_connected'] = datetime.now().strftime("%H:%M:%S")
+    """Subscribe to all linear symbols dynamically"""
+    global connection_stats
     connection_stats['linear_reconnects'] += 1
     
     print(f"✅ Linear WebSocket connected (#{connection_stats['linear_reconnects']})")
     
-    payload = {
-        "op": "subscribe",
-        "args": ["tickers.BTCUSDT"]
-    }
+    # Fetch all linear symbols dynamically
+    symbols = fetch_dynamic_linear_symbols()
+    connection_stats['linear_symbols'] = len(symbols)
     
-    try:
-        ws.send(json.dumps(payload))
-        print(f"📡 Subscribed to BTCUSDT perpetual\n")
-    except Exception as e:
-        print(f"❌ Linear Subscription Error: {e}")
-
-
-def on_open_option(ws):
-    """Subscribe to BTC options - try API first, fallback to comprehensive list"""
-    global connection_stats
-    connection_stats['option_last_connected'] = datetime.now().strftime("%H:%M:%S")
-    connection_stats['option_reconnects'] += 1
-    
-    print(f"✅ Option WebSocket connected (#{connection_stats['option_reconnects']})")
-    
-    # Try to fetch from API
-    option_symbols = fetch_all_btc_options()
-    
-    # Fallback to comprehensive generated list
-    if not option_symbols:
-        print(f"📋 Using fallback: {len(FALLBACK_OPTION_SYMBOLS)} generated option symbols")
-        option_symbols = FALLBACK_OPTION_SYMBOLS
-    else:
-        print(f"✅ Using {len(option_symbols)} symbols from API")
+    if not symbols:
+        print("⚠️  No linear symbols found")
+        return
     
     # Subscribe in batches
-    batch_size = 100
-    successful_batches = 0
-    
-    for i in range(0, len(option_symbols), batch_size):
-        batch = option_symbols[i:i + batch_size]
-        
+    batch_size = 10
+    for i in range(0, len(symbols), batch_size):
+        batch = symbols[i:i + batch_size]
         payload = {
             "op": "subscribe",
             "args": [f"tickers.{s}" for s in batch]
@@ -558,102 +503,93 @@ def on_open_option(ws):
         
         try:
             ws.send(json.dumps(payload))
-            successful_batches += 1
+            if i % 100 == 0:
+                print(f"📡 Linear: {i}/{len(symbols)} subscribed")
+            time.sleep(0.1)
+        except Exception as e:
+            print(f"❌ Linear batch failed: {e}")
+    
+    print(f"✅ Subscribed to {len(symbols)} linear instruments\n")
+
+
+def on_open_option(ws):
+    """Subscribe to all option symbols dynamically"""
+    global connection_stats
+    connection_stats['option_reconnects'] += 1
+    
+    print(f"✅ Option WebSocket connected (#{connection_stats['option_reconnects']})")
+    
+    # Fetch all option symbols dynamically
+    symbols = fetch_dynamic_option_symbols()
+    connection_stats['option_symbols'] = len(symbols)
+    
+    if not symbols:
+        print("⚠️  No option symbols found")
+        return
+    
+    # Subscribe in batches
+    batch_size = 100
+    for i in range(0, len(symbols), batch_size):
+        batch = symbols[i:i + batch_size]
+        payload = {
+            "op": "subscribe",
+            "args": [f"tickers.{s}" for s in batch]
+        }
+        
+        try:
+            ws.send(json.dumps(payload))
             if i % 500 == 0:
-                print(f"📡 Subscribed batch {successful_batches} ({i}/{len(option_symbols)})")
+                print(f"📡 Options: {i}/{len(symbols)} subscribed")
             time.sleep(0.2)
         except Exception as e:
-            print(f"❌ Batch {i//batch_size + 1} failed: {e}")
+            print(f"❌ Option batch failed: {e}")
     
-    print(f"✅ Subscribed to {len(option_symbols)} BTC options ({successful_batches} batches)\n")
-
-
-def on_error(ws, error):
-    """Handle WebSocket errors"""
-    if error:
-        error_str = str(error).lower()
-        if "ping/pong" in error_str or "connection is already closed" in error_str:
-            return
-
-
-def on_close(ws, code, msg):
-    """Handle connection closure"""
-    pass
-
-
-def on_pong(ws, message):
-    """Track pong responses"""
-    global last_pong
-    last_pong = time.time()
+    print(f"✅ Subscribed to {len(symbols)} option instruments\n")
 
 
 def start_linear_websocket():
-    """Start WebSocket for linear/perpetual"""
-    retry_delay = 2
-    max_retry_delay = 30
-    
+    """Start linear WebSocket"""
     while True:
         try:
             ws = websocket.WebSocketApp(
                 WS_URL_LINEAR,
                 on_open=on_open_linear,
-                on_message=on_message_linear,
-                on_pong=on_pong,
-                on_error=on_error,
-                on_close=on_close
+                on_message=lambda ws, msg: on_message(ws, msg, 'linear'),
+                on_error=lambda ws, e: None,
+                on_close=lambda ws, c, m: None
             )
             
-            ws.run_forever(
-                ping_interval=20,
-                ping_timeout=10,
-                skip_utf8_validation=True
-            )
-            
-            retry_delay = 2
+            ws.run_forever(ping_interval=20, ping_timeout=10)
             
         except Exception as e:
             print(f"❌ Linear Error: {e}")
         
-        time.sleep(retry_delay)
-        retry_delay = min(retry_delay * 2, max_retry_delay)
+        time.sleep(5)
 
 
 def start_option_websocket():
-    """Start WebSocket for options"""
-    retry_delay = 2
-    max_retry_delay = 30
-    
+    """Start option WebSocket"""
     while True:
         try:
             ws = websocket.WebSocketApp(
                 WS_URL_OPTION,
                 on_open=on_open_option,
-                on_message=on_message_option,
-                on_pong=on_pong,
-                on_error=on_error,
-                on_close=on_close
+                on_message=lambda ws, msg: on_message(ws, msg, 'option'),
+                on_error=lambda ws, e: None,
+                on_close=lambda ws, c, m: None
             )
             
-            ws.run_forever(
-                ping_interval=20,
-                ping_timeout=10,
-                skip_utf8_validation=True
-            )
-            
-            retry_delay = 2
+            ws.run_forever(ping_interval=20, ping_timeout=10)
             
         except Exception as e:
             print(f"❌ Option Error: {e}")
         
-        time.sleep(retry_delay)
-        retry_delay = min(retry_delay * 2, max_retry_delay)
+        time.sleep(5)
 
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("🚀 Bybit WebSocket Collector - HYBRID MODE")
-    print("=" * 70)
-    print(f"📊 Generated {len(FALLBACK_OPTION_SYMBOLS)} fallback option symbols")
+    print("🚀 Bybit FULLY DYNAMIC WebSocket Collector")
     print("=" * 70 + "\n")
     
     setup_database()
@@ -670,13 +606,16 @@ if __name__ == "__main__":
     
     try:
         while True:
-            time.sleep(1)
+            time.sleep(10)
+            # Periodic status
+            if update_count % 1000 == 0:
+                print(f"\n📊 Status: {update_count} updates | "
+                      f"{connection_stats['linear_symbols']} linear + "
+                      f"{connection_stats['option_symbols']} options tracked")
     except KeyboardInterrupt:
-        print("\n\n" + "=" * 70)
-        print(f"👋 Stopped")
-        print(f"📊 Total Updates: {update_count}")
-        print(f"🔄 API Attempts: {connection_stats['api_fetch_attempts']}")
-        print(f"✅ API Success: {connection_stats['api_fetch_success']}")
-        for key, count in symbol_count.items():
-            print(f"   {key}: {count}")
-        print("=" * 70)
+        print(f"\n\n{'='*70}")
+        print(f"👋 Stopped | Updates: {update_count}")
+        print(f"📡 API Calls: {connection_stats['api_calls']}")
+        print(f"📊 Symbols: {connection_stats['linear_symbols']} linear, "
+              f"{connection_stats['option_symbols']} options")
+        print(f"{'='*70}")
