@@ -993,6 +993,221 @@ def process_Pulse_Butterfly_strategy(
 
 
 
+# # Connection pool
+# connection_pool = None
+
+# # Initialize MySQL database and connection pool
+# def init_db():
+#     global connection_pool
+    
+#     try:
+#         # Create connection pool
+#         connection_pool = mysql.connector.pooling.MySQLConnectionPool(
+#             pool_name="config_pool",
+#             pool_size=5,
+#             **MYSQL_CONFIG
+#         )
+        
+#         # Get connection to create table
+#         conn = connection_pool.get_connection()
+#         cursor = conn.cursor()
+        
+#         cursor.execute('''
+#             CREATE TABLE IF NOT EXISTS configs (
+#                 name VARCHAR(255) PRIMARY KEY,
+#                 config TEXT NOT NULL,
+#                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+#                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+#             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+#         ''')
+        
+#         conn.commit()
+#         cursor.close()
+#         conn.close()
+#         print("✅ Configuration table initialized successfully")
+        
+#     except mysql.connector.Error as e:
+#         print(f"❌ Database initialization error: {e}")
+#         raise
+
+# # Get database connection from pool
+# def get_db():
+#     try:
+#         return connection_pool.get_connection()
+#     except mysql.connector.Error as e:
+#         print(f"Error getting connection: {e}")
+#         # Fallback: create new connection
+#         return mysql.connector.connect(**MYSQL_CONFIG)
+
+# @app.route('/api/configurations', methods=['GET'])
+# def get_configurations():
+#     """Get all configurations"""
+#     try:
+#         conn = get_db()
+#         cursor = conn.cursor(dictionary=True)
+        
+#         cursor.execute('SELECT name, config FROM configs')
+#         rows = cursor.fetchall()
+        
+#         configs = {}
+#         for row in rows:
+#             try:
+#                 configs[row['name']] = json.loads(row['config'])
+#             except json.JSONDecodeError as e:
+#                 print(f"Warning: Invalid JSON for config '{row['name']}': {e}")
+#                 continue
+        
+#         cursor.close()
+#         conn.close()
+        
+#         return jsonify(configs)
+        
+#     except mysql.connector.Error as e:
+#         print(f"Database error: {e}")
+#         return jsonify({'error': 'Failed to retrieve configurations'}), 500
+#     except Exception as e:
+#         print(f"Unexpected error: {e}")
+#         return jsonify({'error': 'Internal server error'}), 500
+
+# @app.route('/api/configurations', methods=['POST'])
+# def save_configuration():
+#     """Save or update a configuration"""
+#     try:
+#         data = request.json
+#         config_name = data.get('name')
+#         config_data = data.get('config')
+        
+#         if not config_name or not config_data:
+#             return jsonify({'error': 'Missing name or config'}), 400
+        
+#         # Validate config_name (e.g., no special characters)
+#         if not isinstance(config_name, str) or not config_name.strip():
+#             return jsonify({'error': 'Invalid configuration name'}), 400
+        
+#         # Validate name length (MySQL VARCHAR(255) limit)
+#         if len(config_name) > 255:
+#             return jsonify({'error': 'Configuration name too long (max 255 characters)'}), 400
+
+#         # Try to serialize config_data to ensure it's valid
+#         try:
+#             config_json = json.dumps(config_data)
+#         except (TypeError, ValueError) as e:
+#             return jsonify({'error': 'Invalid configuration data format'}), 400
+
+#         conn = get_db()
+#         cursor = conn.cursor()
+        
+#         # MySQL syntax: INSERT ... ON DUPLICATE KEY UPDATE
+#         cursor.execute('''
+#             INSERT INTO configs (name, config) 
+#             VALUES (%s, %s)
+#             ON DUPLICATE KEY UPDATE 
+#                 config = VALUES(config),
+#                 updated_at = CURRENT_TIMESTAMP
+#         ''', (config_name, config_json))
+        
+#         conn.commit()
+#         cursor.close()
+#         conn.close()
+        
+#         return jsonify({'message': 'Configuration saved'}), 201
+        
+#     except mysql.connector.Error as e:
+#         print(f"Database error: {e}")
+#         return jsonify({'error': f'Database error: {str(e)}'}), 500
+#     except json.JSONDecodeError as e:
+#         return jsonify({'error': 'Invalid JSON data'}), 500
+#     except Exception as e:
+#         print(f"Unexpected error: {e}")
+#         return jsonify({'error': 'Internal server error'}), 500
+
+# @app.route('/api/configurations/<config_name>', methods=['GET'])
+# def get_configuration(config_name):
+#     """Get a specific configuration by name"""
+#     try:
+#         conn = get_db()
+#         cursor = conn.cursor(dictionary=True)
+        
+#         cursor.execute('SELECT config FROM configs WHERE name = %s', (config_name,))
+#         row = cursor.fetchone()
+        
+#         cursor.close()
+#         conn.close()
+        
+#         if not row:
+#             return jsonify({'error': 'Configuration not found'}), 404
+        
+#         try:
+#             config = json.loads(row['config'])
+#         except json.JSONDecodeError as e:
+#             return jsonify({'error': 'Invalid configuration data'}), 500
+        
+#         return jsonify(config)
+        
+#     except mysql.connector.Error as e:
+#         print(f"Database error: {e}")
+#         return jsonify({'error': 'Failed to retrieve configuration'}), 500
+#     except Exception as e:
+#         print(f"Unexpected error: {e}")
+#         return jsonify({'error': 'Internal server error'}), 500
+
+# @app.route('/api/configurations/<config_name>', methods=['DELETE'])
+# def delete_configuration(config_name):
+#     """Delete a configuration by name"""
+#     try:
+#         conn = get_db()
+#         cursor = conn.cursor()
+        
+#         cursor.execute('DELETE FROM configs WHERE name = %s', (config_name,))
+#         rows_affected = cursor.rowcount
+        
+#         conn.commit()
+#         cursor.close()
+#         conn.close()
+        
+#         if rows_affected == 0:
+#             return jsonify({'error': 'Configuration not found'}), 404
+        
+#         return jsonify({'message': 'Configuration deleted'}), 200
+        
+#     except mysql.connector.Error as e:
+#         print(f"Database error: {e}")
+#         return jsonify({'error': 'Failed to delete configuration'}), 500
+#     except Exception as e:
+#         print(f"Unexpected error: {e}")
+#         return jsonify({'error': 'Internal server error'}), 500
+
+# @app.route('/api/configurations/health', methods=['GET'])
+# def health_check():
+#     """Health check endpoint"""
+#     try:
+#         conn = get_db()
+#         cursor = conn.cursor()
+#         cursor.execute('SELECT 1')
+#         cursor.fetchone()
+#         cursor.close()
+#         conn.close()
+        
+#         return jsonify({
+#             'status': 'healthy',
+#             'database': 'connected'
+#         })
+#     except Exception as e:
+#         return jsonify({
+#             'status': 'unhealthy',
+#             'error': str(e)
+#         }), 500
+# if __name__ == '__main__':
+#     init_db()
+#     # Get port from environment (Railway sets this)
+#     port = int(os.getenv('PORT', 5050))
+    
+#     # Run app
+#     app.run(
+#         host='0.0.0.0',
+#         port=port,
+#         debug=False  # Always False in production
+#     )
 # Connection pool
 connection_pool = None
 
@@ -1001,6 +1216,14 @@ def init_db():
     global connection_pool
     
     try:
+        print("=" * 50)
+        print("Initializing database connection...")
+        print(f"Host: {MYSQL_CONFIG['host']}")
+        print(f"Port: {MYSQL_CONFIG['port']}")
+        print(f"User: {MYSQL_CONFIG['user']}")
+        print(f"Database: {MYSQL_CONFIG['database']}")
+        print("=" * 50)
+        
         # Create connection pool
         connection_pool = mysql.connector.pooling.MySQLConnectionPool(
             pool_name="config_pool",
@@ -1008,9 +1231,13 @@ def init_db():
             **MYSQL_CONFIG
         )
         
+        print("✅ Connection pool created")
+        
         # Get connection to create table
         conn = connection_pool.get_connection()
         cursor = conn.cursor()
+        
+        print("Creating/checking configs table...")
         
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS configs (
@@ -1024,14 +1251,33 @@ def init_db():
         conn.commit()
         cursor.close()
         conn.close()
+        
         print("✅ Configuration table initialized successfully")
+        return True
         
     except mysql.connector.Error as e:
         print(f"❌ Database initialization error: {e}")
+        print(f"Error Code: {e.errno if hasattr(e, 'errno') else 'N/A'}")
+        print(f"SQL State: {e.sqlstate if hasattr(e, 'sqlstate') else 'N/A'}")
+        connection_pool = None
+        raise
+    except Exception as e:
+        print(f"❌ Unexpected error during initialization: {e}")
+        connection_pool = None
         raise
 
 # Get database connection from pool
 def get_db():
+    global connection_pool
+    
+    if connection_pool is None:
+        print("⚠️ Connection pool is None! Attempting to initialize...")
+        try:
+            init_db()
+        except Exception as e:
+            print(f"Failed to initialize database: {e}")
+            raise Exception("Database connection pool not available")
+    
     try:
         return connection_pool.get_connection()
     except mysql.connector.Error as e:
@@ -1197,14 +1443,32 @@ def health_check():
             'status': 'unhealthy',
             'error': str(e)
         }), 500
-if __name__ == '__main__':
+
+# ============================================
+# CRITICAL: Initialize at module level
+# This runs when the module is imported by Gunicorn/Waitress
+# ============================================
+print("\n🚀 Initializing database at module level...")
+try:
     init_db()
-    # Get port from environment (Railway sets this)
-    port = int(os.getenv('PORT', 5050))
+    print("✅ Database initialized successfully at module level")
+except Exception as e:
+    print(f"⚠️ Warning: Could not initialize database at module level: {e}")
+    print("Database will be initialized on first request")
+
+# ============================================
+# For local development only
+# ============================================
+if __name__ == '__main__':
+    # This only runs when executing: python app.py
+    # Railway/Gunicorn won't execute this block
     
-    # Run app
+    port = int(os.getenv('PORT', 1202))
+    print(f"\n🚀 Starting Flask development server on port {port}")
+    
     app.run(
         host='0.0.0.0',
         port=port,
-        debug=False  # Always False in production
+        debug=True,
+        threaded=True
     )
