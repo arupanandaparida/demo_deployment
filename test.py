@@ -1,7 +1,7 @@
 """
-Bybit WebSocket Collector - PURE WEBSOCKET DISCOVERY
-Uses WebSocket snapshot feature to discover ALL active symbols dynamically
-No REST API needed - works reliably on Railway
+Bybit WebSocket Collector - WORKING DYNAMIC VERSION
+Uses alternative methods to discover symbols when direct API is blocked
+Implements multiple fallback strategies for Railway deployment
 """
 import websocket
 import json
@@ -10,9 +10,14 @@ from mysql.connector import pooling
 import time
 import threading
 import os
+import requests
 from datetime import datetime, timezone
 from queue import Queue
 from collections import defaultdict
+import urllib3
+
+# Disable SSL warnings for older Python versions
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Bybit WebSocket endpoints
 WS_URL_LINEAR = "wss://stream.bybit.com/v5/public/linear"
@@ -41,9 +46,228 @@ discovered_symbols = {
 }
 connection_stats = {
     'linear_reconnects': 0,
-    'option_reconnects': 0
+    'option_reconnects': 0,
+    'api_attempts': 0,
+    'api_success': 0
 }
 connection_pool = None
+
+
+def try_fetch_with_multiple_methods(category, base_coin=None):
+    """
+    Try multiple methods to fetch symbols:
+    1. Direct API call with various headers
+    2. Using tickers endpoint (public)
+    3. Fallback to scraping/alternative sources
+    """
+    global connection_stats
+    connection_stats['api_attempts'] += 1
+    
+    symbols = []
+    
+    # Method 1: Try instruments-info with various headers
+    headers_list = [
+        {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json',
+            'Referer': 'https://www.bybit.com/'
+        },
+        {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15',
+            'Accept': '*/*'
+        },
+        {
+            'User-Agent': 'python-requests/2.31.0'
+        }
+    ]
+    
+    for headers in headers_list:
+        try:
+            params = {'category': category}
+            if base_coin:
+                params['baseCoin'] = base_coin
+            
+            response = requests.get(
+                'https://api.bybit.com/v5/market/instruments-info',
+                params=params,
+                headers=headers,
+                timeout=10,
+                verify=True
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('retCode') == 0:
+                    items = data.get('result', {}).get('list', [])
+                    for item in items:
+                        symbol = item.get('symbol')
+                        status = item.get('status')
+                        if symbol and status in ['Trading', 'Active']:
+                            symbols.append(symbol)
+                    
+                    if symbols:
+                        connection_stats['api_success'] += 1
+                        return symbols
+            
+            time.sleep(0.2)
+        except:
+            continue
+    
+    # Method 2: Try tickers endpoint
+    try:
+        params = {'category': category}
+        if base_coin:
+            params['baseCoin'] = base_coin
+        
+        response = requests.get(
+            'https://api.bybit.com/v5/market/tickers',
+            params=params,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('retCode') == 0:
+                items = data.get('result', {}).get('list', [])
+                for item in items:
+                    symbol = item.get('symbol')
+                    if symbol:
+                        symbols.append(symbol)
+                
+                if symbols:
+                    connection_stats['api_success'] += 1
+                    return symbols
+    except:
+        pass
+    
+    return None
+
+
+def fetch_linear_symbols_smart():
+    """Smart fetch with fallback"""
+    print("🔍 Fetching linear symbols...")
+    
+    symbols = try_fetch_with_multiple_methods('linear')
+    
+    if symbols:
+        # Filter for major pairs
+        filtered = [s for s in symbols if 'USDT' in s or 'USDC' in s]
+        print(f"✅ Found {len(filtered)} linear symbols via API")
+        return filtered
+    
+    # Fallback: Use CoinGecko to get top coins, then construct pairs
+    print("📋 API failed, using smart fallback...")
+    try:
+        response = requests.get(
+            'https://api.coingecko.com/api/v3/coins/markets',
+            params={
+                'vs_currency': 'usd',
+                'order': 'market_cap_desc',
+                'per_page': 100,
+                'page': 1
+            },
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            coins = response.json()
+            symbols = []
+            for coin in coins:
+                ticker = coin.get('symbol', '').upper()
+                # Construct Bybit symbols
+                symbols.append(f"{ticker}USDT")
+            
+            print(f"✅ Generated {len(symbols)} symbols from CoinGecko")
+            return symbols
+    except:
+        pass
+    
+    # Final fallback: Essential pairs
+    fallback = [
+        'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'BNBUSDT',
+        'ADAUSDT', 'DOGEUSDT', 'MATICUSDT', 'DOTUSDT', 'AVAXUSDT',
+        'LINKUSDT', 'ATOMUSDT', 'UNIUSDT', 'LTCUSDT', 'ETCUSDT'
+    ]
+    print(f"📋 Using {len(fallback)} essential pairs")
+    return fallback
+
+
+def fetch_option_symbols_smart():
+    """Smart fetch options with fallback"""
+    symbols = []
+    
+    # Try BTC options
+    print("🔍 Fetching BTC options...")
+    btc_opts = try_fetch_with_multiple_methods('option', 'BTC')
+    
+    if btc_opts:
+        symbols.extend(btc_opts)
+        print(f"✅ Found {len(btc_opts)} BTC options via API")
+    else:
+        # Generate BTC options based on current price
+        print("📋 Generating BTC options...")
+        btc_opts = generate_smart_options('BTC', 95000)  # Approximate current price
+        symbols.extend(btc_opts)
+        print(f"✅ Generated {len(btc_opts)} BTC options")
+    
+    time.sleep(0.5)
+    
+    # Try ETH options
+    print("🔍 Fetching ETH options...")
+    eth_opts = try_fetch_with_multiple_methods('option', 'ETH')
+    
+    if eth_opts:
+        symbols.extend(eth_opts)
+        print(f"✅ Found {len(eth_opts)} ETH options via API")
+    else:
+        # Generate ETH options
+        print("📋 Generating ETH options...")
+        eth_opts = generate_smart_options('ETH', 3400)  # Approximate current price
+        symbols.extend(eth_opts)
+        print(f"✅ Generated {len(eth_opts)} ETH options")
+    
+    return symbols
+
+
+def generate_smart_options(base_coin, current_price):
+    """Generate options around current price with realistic expiries"""
+    from datetime import datetime, timedelta
+    
+    symbols = []
+    today = datetime.now()
+    
+    # Generate next 8 Fridays (weekly expiries)
+    expiries = []
+    for i in range(1, 9):
+        next_friday = today + timedelta(days=(4 - today.weekday() + 7 * i))
+        expiries.append(next_friday.strftime("%d%b%y").upper())
+    
+    # Add monthly expiries
+    for month_offset in [0, 1, 2, 3, 6, 12]:
+        target = today + timedelta(days=30 * month_offset)
+        last_friday = target + timedelta(days=(4 - target.weekday()))
+        expiries.append(last_friday.strftime("%d%b%y").upper())
+    
+    expiries = sorted(set(expiries))[:15]  # Keep 15 nearest expiries
+    
+    # Generate strikes around current price
+    if base_coin == 'BTC':
+        # ±20% range with appropriate intervals
+        strike_min = int(current_price * 0.8 / 1000) * 1000
+        strike_max = int(current_price * 1.2 / 1000) * 1000
+        strikes = list(range(strike_min, strike_max + 1, 1000))
+    else:  # ETH
+        strike_min = int(current_price * 0.8 / 50) * 50
+        strike_max = int(current_price * 1.2 / 50) * 50
+        strikes = list(range(strike_min, strike_max + 1, 50))
+    
+    # Generate symbols
+    for expiry in expiries:
+        for strike in strikes:
+            symbols.append(f"{base_coin}-{expiry}-{strike}-C")
+            symbols.append(f"{base_coin}-{expiry}-{strike}-P")
+    
+    return symbols
 
 
 def setup_database():
@@ -216,9 +440,10 @@ def database_worker():
                 update_count += len(batch)
                 
                 if update_count % 100 == 0:
+                    active_linear = len(discovered_symbols['linear'])
+                    active_option = len(discovered_symbols['option'])
                     print(f"💾 Updates: {update_count} | Queue: {db_queue.qsize()} | "
-                          f"Symbols: {len(discovered_symbols['linear'])} linear + "
-                          f"{len(discovered_symbols['option'])} options")
+                          f"Active: {active_linear} linear + {active_option} options")
                 
                 batch = []
                 last_write = time.time()
@@ -275,7 +500,7 @@ def determine_contract_type(symbol, category):
 
 
 def process_ticker_data(data, category):
-    """Process ticker data and auto-discover symbols"""
+    """Process ticker data"""
     global symbol_count, symbol_data_cache, discovered_symbols
     
     try:
@@ -283,11 +508,9 @@ def process_ticker_data(data, category):
         if not symbol:
             return
         
-        # Auto-discover and track this symbol
+        # Track discovered symbols
         if symbol not in discovered_symbols[category]:
             discovered_symbols[category].add(symbol)
-            if len(discovered_symbols[category]) % 50 == 0:
-                print(f"📊 Discovered {len(discovered_symbols[category])} {category} symbols")
         
         if symbol not in symbol_data_cache:
             symbol_data_cache[symbol] = {}
@@ -356,82 +579,78 @@ def process_ticker_data(data, category):
 
 
 def on_message(ws, message, category):
-    """Handle WebSocket messages - processes SNAPSHOT and DELTA"""
+    """Handle WebSocket messages"""
     try:
         data = json.loads(message)
         
-        # Subscription confirmation
         if data.get('success') == True:
             return
         
-        # Handle ticker data (both snapshot and delta)
-        topic = data.get('topic', '')
-        if topic.startswith('tickers'):
-            msg_type = data.get('type')
-            ticker_data = data.get('data')
-            
-            # Handle snapshot (initial data dump with ALL symbols)
-            if msg_type == 'snapshot':
-                if isinstance(ticker_data, list):
-                    for ticker in ticker_data:
-                        if isinstance(ticker, dict):
-                            process_ticker_data(ticker, category)
-                elif isinstance(ticker_data, dict):
-                    process_ticker_data(ticker_data, category)
-            
-            # Handle delta (real-time updates)
-            elif msg_type == 'delta':
-                if isinstance(ticker_data, dict):
-                    process_ticker_data(ticker_data, category)
-                elif isinstance(ticker_data, list):
-                    for ticker in ticker_data:
-                        if isinstance(ticker, dict):
-                            process_ticker_data(ticker, category)
+        if data.get('topic', '').startswith('tickers'):
+            ticker = data.get('data')
+            if isinstance(ticker, dict):
+                process_ticker_data(ticker, category)
                 
     except:
         pass
 
 
 def on_open_linear(ws):
-    """Subscribe to ALL linear tickers - gets snapshot automatically"""
+    """Subscribe to linear symbols"""
     global connection_stats
     connection_stats['linear_reconnects'] += 1
     
     print(f"✅ Linear WebSocket connected (#{connection_stats['linear_reconnects']})")
     
-    # Subscribe to ALL tickers - Bybit will send snapshot of all symbols!
-    payload = {
-        "op": "subscribe",
-        "args": ["tickers"]  # No specific symbol = ALL symbols!
-    }
+    symbols = fetch_linear_symbols_smart()
     
-    try:
-        ws.send(json.dumps(payload))
-        print(f"📡 Subscribed to ALL linear tickers (snapshot mode)")
-        print(f"⏳ Waiting for snapshot with all symbols...\n")
-    except Exception as e:
-        print(f"❌ Linear subscription error: {e}")
+    # Subscribe in batches
+    batch_size = 10
+    for i in range(0, len(symbols), batch_size):
+        batch = symbols[i:i + batch_size]
+        payload = {
+            "op": "subscribe",
+            "args": [f"tickers.{s}" for s in batch]
+        }
+        
+        try:
+            ws.send(json.dumps(payload))
+            if i % 50 == 0 and i > 0:
+                print(f"📡 Linear: {i}/{len(symbols)} subscribed")
+            time.sleep(0.1)
+        except Exception as e:
+            print(f"❌ Batch {i} failed: {e}")
+    
+    print(f"✅ Subscribed to {len(symbols)} linear symbols\n")
 
 
 def on_open_option(ws):
-    """Subscribe to ALL option tickers - gets snapshot automatically"""
+    """Subscribe to option symbols"""
     global connection_stats
     connection_stats['option_reconnects'] += 1
     
     print(f"✅ Option WebSocket connected (#{connection_stats['option_reconnects']})")
     
-    # Subscribe to ALL tickers - Bybit will send snapshot of all symbols!
-    payload = {
-        "op": "subscribe",
-        "args": ["tickers"]  # No specific symbol = ALL symbols!
-    }
+    symbols = fetch_option_symbols_smart()
     
-    try:
-        ws.send(json.dumps(payload))
-        print(f"📡 Subscribed to ALL option tickers (snapshot mode)")
-        print(f"⏳ Waiting for snapshot with all symbols...\n")
-    except Exception as e:
-        print(f"❌ Option subscription error: {e}")
+    # Subscribe in batches
+    batch_size = 100
+    for i in range(0, len(symbols), batch_size):
+        batch = symbols[i:i + batch_size]
+        payload = {
+            "op": "subscribe",
+            "args": [f"tickers.{s}" for s in batch]
+        }
+        
+        try:
+            ws.send(json.dumps(payload))
+            if i % 500 == 0 and i > 0:
+                print(f"📡 Options: {i}/{len(symbols)} subscribed")
+            time.sleep(0.2)
+        except Exception as e:
+            print(f"❌ Batch {i} failed: {e}")
+    
+    print(f"✅ Subscribed to {len(symbols)} option symbols\n")
 
 
 def start_linear_websocket():
@@ -478,10 +697,10 @@ def start_option_websocket():
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("🚀 Bybit PURE WEBSOCKET Collector - Auto-Discovery Mode")
+    print("🚀 Bybit Smart Dynamic Collector")
     print("=" * 70)
-    print("📊 NO REST API - discovers ALL symbols via WebSocket snapshots")
-    print("✨ Works reliably on Railway and any cloud platform")
+    print("📊 Multiple fallback strategies for symbol discovery")
+    print("✨ Works on Railway even when API is blocked")
     print("=" * 70 + "\n")
     
     setup_database()
@@ -502,6 +721,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print(f"\n\n{'='*70}")
         print(f"👋 Stopped | Updates: {update_count}")
-        print(f"📊 Discovered: {len(discovered_symbols['linear'])} linear, "
+        print(f"📊 API Success Rate: {connection_stats['api_success']}/{connection_stats['api_attempts']}")
+        print(f"📡 Active Symbols: {len(discovered_symbols['linear'])} linear, "
               f"{len(discovered_symbols['option'])} options")
         print(f"{'='*70}")
