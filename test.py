@@ -1,7 +1,7 @@
 """
-Bybit WebSocket Collector - FULLY DYNAMIC VERSION
-Fetches ALL active instruments from API and subscribes to them
-No hardcoding - discovers everything available from exchange
+Bybit WebSocket Collector - PURE WEBSOCKET DISCOVERY
+Uses WebSocket snapshot feature to discover ALL active symbols dynamically
+No REST API needed - works reliably on Railway
 """
 import websocket
 import json
@@ -10,7 +10,6 @@ from mysql.connector import pooling
 import time
 import threading
 import os
-import requests
 from datetime import datetime, timezone
 from queue import Queue
 from collections import defaultdict
@@ -18,9 +17,6 @@ from collections import defaultdict
 # Bybit WebSocket endpoints
 WS_URL_LINEAR = "wss://stream.bybit.com/v5/public/linear"
 WS_URL_OPTION = "wss://stream.bybit.com/v5/public/option"
-
-# Bybit REST API endpoints
-BYBIT_API_BASE = "https://api.bybit.com/v5"
 
 # MySQL Configuration
 MYSQL_CONFIG = {
@@ -39,124 +35,15 @@ update_count = 0
 symbol_count = defaultdict(int)
 price_cache = {}
 symbol_data_cache = {}
-last_pong = time.time()
+discovered_symbols = {
+    'linear': set(),
+    'option': set()
+}
 connection_stats = {
     'linear_reconnects': 0,
-    'option_reconnects': 0,
-    'linear_symbols': 0,
-    'option_symbols': 0,
-    'api_calls': 0
+    'option_reconnects': 0
 }
 connection_pool = None
-
-
-def fetch_all_instruments(category, base_coin=None):
-    """
-    Fetch ALL available instruments from Bybit API
-    category: 'linear', 'option', 'inverse', 'spot'
-    base_coin: 'BTC', 'ETH', etc. (None for all)
-    """
-    global connection_stats
-    connection_stats['api_calls'] += 1
-    
-    instruments = []
-    cursor = None
-    
-    print(f"🔍 Fetching {category} instruments{f' for {base_coin}' if base_coin else ''}...")
-    
-    try:
-        while True:
-            params = {
-                'category': category,
-                'limit': 1000  # Max per request
-            }
-            
-            if base_coin:
-                params['baseCoin'] = base_coin
-            
-            if cursor:
-                params['cursor'] = cursor
-            
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-            
-            response = requests.get(
-                f"{BYBIT_API_BASE}/market/instruments-info",
-                params=params,
-                headers=headers,
-                timeout=15
-            )
-            
-            if response.status_code != 200:
-                print(f"⚠️  API returned status {response.status_code}")
-                break
-            
-            data = response.json()
-            
-            if data.get('retCode') != 0:
-                print(f"⚠️  API error: {data.get('retMsg')}")
-                break
-            
-            result = data.get('result', {})
-            items = result.get('list', [])
-            
-            for item in items:
-                symbol = item.get('symbol')
-                status = item.get('status')
-                
-                # Only include tradable/active instruments
-                if symbol and status in ['Trading', 'Active']:
-                    instruments.append(symbol)
-            
-            # Check for pagination
-            cursor = result.get('nextPageCursor')
-            if not cursor or not items:
-                break
-            
-            print(f"   Fetched {len(instruments)} so far...")
-            time.sleep(0.1)  # Rate limiting
-        
-        print(f"✅ Found {len(instruments)} active {category} instruments")
-        return instruments
-        
-    except Exception as e:
-        print(f"❌ Error fetching instruments: {e}")
-        return []
-
-
-def fetch_dynamic_linear_symbols():
-    """Fetch all linear perpetual symbols (USDT, USDC pairs)"""
-    symbols = []
-    
-    # Get all linear instruments
-    all_linear = fetch_all_instruments('linear')
-    
-    for symbol in all_linear:
-        # Filter for major coins if needed, or include all
-        if 'USDT' in symbol or 'USDC' in symbol:
-            symbols.append(symbol)
-    
-    return symbols
-
-
-def fetch_dynamic_option_symbols():
-    """Fetch all option symbols for major base coins"""
-    symbols = []
-    
-    # Get options for BTC
-    btc_options = fetch_all_instruments('option', 'BTC')
-    symbols.extend(btc_options)
-    
-    # Get options for ETH
-    eth_options = fetch_all_instruments('option', 'ETH')
-    symbols.extend(eth_options)
-    
-    # You can add more base coins here
-    # sol_options = fetch_all_instruments('option', 'SOL')
-    # symbols.extend(sol_options)
-    
-    return symbols
 
 
 def setup_database():
@@ -329,7 +216,9 @@ def database_worker():
                 update_count += len(batch)
                 
                 if update_count % 100 == 0:
-                    print(f"💾 Updates: {update_count} | Queue: {db_queue.qsize()}")
+                    print(f"💾 Updates: {update_count} | Queue: {db_queue.qsize()} | "
+                          f"Symbols: {len(discovered_symbols['linear'])} linear + "
+                          f"{len(discovered_symbols['option'])} options")
                 
                 batch = []
                 last_write = time.time()
@@ -386,13 +275,19 @@ def determine_contract_type(symbol, category):
 
 
 def process_ticker_data(data, category):
-    """Process ticker data"""
-    global symbol_count, symbol_data_cache
+    """Process ticker data and auto-discover symbols"""
+    global symbol_count, symbol_data_cache, discovered_symbols
     
     try:
         symbol = data.get('symbol')
         if not symbol:
             return
+        
+        # Auto-discover and track this symbol
+        if symbol not in discovered_symbols[category]:
+            discovered_symbols[category].add(symbol)
+            if len(discovered_symbols[category]) % 50 == 0:
+                print(f"📊 Discovered {len(discovered_symbols[category])} {category} symbols")
         
         if symbol not in symbol_data_cache:
             symbol_data_cache[symbol] = {}
@@ -461,90 +356,82 @@ def process_ticker_data(data, category):
 
 
 def on_message(ws, message, category):
-    """Generic message handler"""
+    """Handle WebSocket messages - processes SNAPSHOT and DELTA"""
     try:
         data = json.loads(message)
         
+        # Subscription confirmation
         if data.get('success') == True:
             return
         
-        if data.get('topic', '').startswith('tickers'):
-            ticker = data.get('data')
-            if isinstance(ticker, dict):
-                process_ticker_data(ticker, category)
+        # Handle ticker data (both snapshot and delta)
+        topic = data.get('topic', '')
+        if topic.startswith('tickers'):
+            msg_type = data.get('type')
+            ticker_data = data.get('data')
+            
+            # Handle snapshot (initial data dump with ALL symbols)
+            if msg_type == 'snapshot':
+                if isinstance(ticker_data, list):
+                    for ticker in ticker_data:
+                        if isinstance(ticker, dict):
+                            process_ticker_data(ticker, category)
+                elif isinstance(ticker_data, dict):
+                    process_ticker_data(ticker_data, category)
+            
+            # Handle delta (real-time updates)
+            elif msg_type == 'delta':
+                if isinstance(ticker_data, dict):
+                    process_ticker_data(ticker_data, category)
+                elif isinstance(ticker_data, list):
+                    for ticker in ticker_data:
+                        if isinstance(ticker, dict):
+                            process_ticker_data(ticker, category)
                 
     except:
         pass
 
 
 def on_open_linear(ws):
-    """Subscribe to all linear symbols dynamically"""
+    """Subscribe to ALL linear tickers - gets snapshot automatically"""
     global connection_stats
     connection_stats['linear_reconnects'] += 1
     
     print(f"✅ Linear WebSocket connected (#{connection_stats['linear_reconnects']})")
     
-    # Fetch all linear symbols dynamically
-    symbols = fetch_dynamic_linear_symbols()
-    connection_stats['linear_symbols'] = len(symbols)
+    # Subscribe to ALL tickers - Bybit will send snapshot of all symbols!
+    payload = {
+        "op": "subscribe",
+        "args": ["tickers"]  # No specific symbol = ALL symbols!
+    }
     
-    if not symbols:
-        print("⚠️  No linear symbols found")
-        return
-    
-    # Subscribe in batches
-    batch_size = 10
-    for i in range(0, len(symbols), batch_size):
-        batch = symbols[i:i + batch_size]
-        payload = {
-            "op": "subscribe",
-            "args": [f"tickers.{s}" for s in batch]
-        }
-        
-        try:
-            ws.send(json.dumps(payload))
-            if i % 100 == 0:
-                print(f"📡 Linear: {i}/{len(symbols)} subscribed")
-            time.sleep(0.1)
-        except Exception as e:
-            print(f"❌ Linear batch failed: {e}")
-    
-    print(f"✅ Subscribed to {len(symbols)} linear instruments\n")
+    try:
+        ws.send(json.dumps(payload))
+        print(f"📡 Subscribed to ALL linear tickers (snapshot mode)")
+        print(f"⏳ Waiting for snapshot with all symbols...\n")
+    except Exception as e:
+        print(f"❌ Linear subscription error: {e}")
 
 
 def on_open_option(ws):
-    """Subscribe to all option symbols dynamically"""
+    """Subscribe to ALL option tickers - gets snapshot automatically"""
     global connection_stats
     connection_stats['option_reconnects'] += 1
     
     print(f"✅ Option WebSocket connected (#{connection_stats['option_reconnects']})")
     
-    # Fetch all option symbols dynamically
-    symbols = fetch_dynamic_option_symbols()
-    connection_stats['option_symbols'] = len(symbols)
+    # Subscribe to ALL tickers - Bybit will send snapshot of all symbols!
+    payload = {
+        "op": "subscribe",
+        "args": ["tickers"]  # No specific symbol = ALL symbols!
+    }
     
-    if not symbols:
-        print("⚠️  No option symbols found")
-        return
-    
-    # Subscribe in batches
-    batch_size = 100
-    for i in range(0, len(symbols), batch_size):
-        batch = symbols[i:i + batch_size]
-        payload = {
-            "op": "subscribe",
-            "args": [f"tickers.{s}" for s in batch]
-        }
-        
-        try:
-            ws.send(json.dumps(payload))
-            if i % 500 == 0:
-                print(f"📡 Options: {i}/{len(symbols)} subscribed")
-            time.sleep(0.2)
-        except Exception as e:
-            print(f"❌ Option batch failed: {e}")
-    
-    print(f"✅ Subscribed to {len(symbols)} option instruments\n")
+    try:
+        ws.send(json.dumps(payload))
+        print(f"📡 Subscribed to ALL option tickers (snapshot mode)")
+        print(f"⏳ Waiting for snapshot with all symbols...\n")
+    except Exception as e:
+        print(f"❌ Option subscription error: {e}")
 
 
 def start_linear_websocket():
@@ -564,6 +451,7 @@ def start_linear_websocket():
         except Exception as e:
             print(f"❌ Linear Error: {e}")
         
+        print("🔄 Reconnecting linear...")
         time.sleep(5)
 
 
@@ -584,12 +472,16 @@ def start_option_websocket():
         except Exception as e:
             print(f"❌ Option Error: {e}")
         
+        print("🔄 Reconnecting options...")
         time.sleep(5)
 
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("🚀 Bybit FULLY DYNAMIC WebSocket Collector")
+    print("🚀 Bybit PURE WEBSOCKET Collector - Auto-Discovery Mode")
+    print("=" * 70)
+    print("📊 NO REST API - discovers ALL symbols via WebSocket snapshots")
+    print("✨ Works reliably on Railway and any cloud platform")
     print("=" * 70 + "\n")
     
     setup_database()
@@ -607,15 +499,9 @@ if __name__ == "__main__":
     try:
         while True:
             time.sleep(10)
-            # Periodic status
-            if update_count % 1000 == 0:
-                print(f"\n📊 Status: {update_count} updates | "
-                      f"{connection_stats['linear_symbols']} linear + "
-                      f"{connection_stats['option_symbols']} options tracked")
     except KeyboardInterrupt:
         print(f"\n\n{'='*70}")
         print(f"👋 Stopped | Updates: {update_count}")
-        print(f"📡 API Calls: {connection_stats['api_calls']}")
-        print(f"📊 Symbols: {connection_stats['linear_symbols']} linear, "
-              f"{connection_stats['option_symbols']} options")
+        print(f"📊 Discovered: {len(discovered_symbols['linear'])} linear, "
+              f"{len(discovered_symbols['option'])} options")
         print(f"{'='*70}")
