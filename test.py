@@ -42,8 +42,8 @@ def generate_comprehensive_option_list(base_coin='BTC'):
     # Common expiries (update these based on current available dates)
     expiries = [
         "30DEC25", "31DEC25",  # End of month
-        "01JAN26", "02JAN26", "03JAN26", "09JAN26", "10JAN26", "16JAN26", "17JAN26", "24JAN26", "30JAN26", "31JAN26",  # January
-        "27FEB26", "28FEB26", "27MAR26", "31MAR26", "30JUN26", "25SEP26", "29DEC26"  # Quarterly
+        "01JAN26", "02JAN26", "09JAN26",  "16JAN26","30JAN26",
+        "27FEB26", "27MAR26", "31MAR26", "26JUN26", "25SEP26", "29DEC26"  # Quarterly
     ]
     
     # Strike ranges based on coin
